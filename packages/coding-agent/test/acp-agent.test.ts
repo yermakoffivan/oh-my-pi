@@ -87,8 +87,13 @@ class FakeAgentSession {
 	disposed = false;
 	fastMode = false;
 	forcedToolChoice: string | undefined;
-	promptCalls: string[] = [];
-	customMessages: Array<{ customType: string; content: string; details?: unknown }> = [];
+	promptCalls: Array<{ text: string; streamingBehavior?: "steer" | "followUp" }> = [];
+	customMessages: Array<{
+		customType: string;
+		content: string;
+		details?: unknown;
+		streamingBehavior?: "steer" | "followUp";
+	}> = [];
 	skillsSettings = { enableSkillCommands: true };
 	skills: Array<{ name: string; description: string; filePath: string; baseDir: string; source: string }> = [];
 	planModeState: PlanModeState | undefined;
@@ -153,8 +158,11 @@ class FakeAgentSession {
 		};
 	}
 
-	async prompt(text: string): Promise<void> {
-		this.promptCalls.push(text);
+	async prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp" }): Promise<void> {
+		this.promptCalls.push({ text, streamingBehavior: options?.streamingBehavior });
+		if (options?.streamingBehavior) {
+			return;
+		}
 		this.isStreaming = true;
 		this.sessionManager.appendMessage({ role: "user", content: text, timestamp: Date.now() });
 		const assistantMessage = makeAssistantMessage("pong");
@@ -179,8 +187,14 @@ class FakeAgentSession {
 		this.isStreaming = false;
 	}
 
-	async promptCustomMessage(message: { customType: string; content: string; details?: unknown }): Promise<void> {
-		this.customMessages.push(message);
+	async promptCustomMessage(
+		message: { customType: string; content: string; details?: unknown },
+		options?: { streamingBehavior?: "steer" | "followUp" },
+	): Promise<void> {
+		this.customMessages.push({ ...message, streamingBehavior: options?.streamingBehavior });
+		if (options?.streamingBehavior) {
+			return;
+		}
 		this.isStreaming = true;
 		const assistantMessage = makeAssistantMessage("skill pong");
 		for (const listener of this.#listeners) {
@@ -703,6 +717,83 @@ describe("ACP agent", () => {
 		await Bun.sleep(0);
 	});
 
+	it("routes active ACP prompts through steer semantics", async () => {
+		const harness = await createHarness();
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		const session = harness.findSession(created.sessionId)!;
+
+		const firstPrompt = harness.agent.prompt({
+			sessionId: created.sessionId,
+			messageId: "00000000-0000-4000-8000-000000000101",
+			prompt: [{ type: "text", text: "initial" }],
+		} as PromptRequest);
+		const activeResponse = await harness.agent.prompt({
+			sessionId: created.sessionId,
+			messageId: "00000000-0000-4000-8000-000000000102",
+			prompt: [{ type: "text", text: "clarify" }],
+		} as PromptRequest);
+
+		expectAcpStructure(zPromptResponse, activeResponse);
+		expect(activeResponse).toMatchObject({
+			stopReason: "end_turn",
+			userMessageId: "00000000-0000-4000-8000-000000000102",
+		});
+		expect(session.promptCalls).toEqual([
+			{ text: "initial", streamingBehavior: undefined },
+			{ text: "clarify", streamingBehavior: "steer" },
+		]);
+
+		const firstResponse = await firstPrompt;
+		expect(firstResponse.userMessageId).toBe("00000000-0000-4000-8000-000000000101");
+
+		harness.abortController.abort();
+		await Bun.sleep(0);
+	});
+
+	it("routes active ACP skill prompts through steer semantics", async () => {
+		const harness = await createHarness();
+		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
+		const session = harness.findSession(created.sessionId)!;
+		const skillDir = path.join(harness.cwdA, ".skills", "sample");
+		const skillPath = path.join(skillDir, "SKILL.md");
+		await fs.promises.mkdir(skillDir, { recursive: true });
+		await fs.promises.writeFile(skillPath, "---\ndescription: Sample skill\n---\n# Sample\nDo work.\n");
+		session.skills = [
+			{
+				name: "sample",
+				description: "Sample skill",
+				filePath: skillPath,
+				baseDir: skillDir,
+				source: "test",
+			},
+		];
+
+		const firstPrompt = harness.agent.prompt({
+			sessionId: created.sessionId,
+			messageId: "00000000-0000-4000-8000-000000000103",
+			prompt: [{ type: "text", text: "initial" }],
+		} as PromptRequest);
+		const activeResponse = await harness.agent.prompt({
+			sessionId: created.sessionId,
+			messageId: "00000000-0000-4000-8000-000000000104",
+			prompt: [{ type: "text", text: "/skill:sample extra context" }],
+		} as PromptRequest);
+
+		expectAcpStructure(zPromptResponse, activeResponse);
+		expect(activeResponse.userMessageId).toBe("00000000-0000-4000-8000-000000000104");
+		expect(session.customMessages).toHaveLength(1);
+		expect(session.customMessages[0]!.streamingBehavior).toBe("steer");
+		expect(session.customMessages[0]!.customType).toBe("skill-prompt");
+		expect(session.customMessages[0]!.content).toContain("# Sample\nDo work.");
+		expect(session.customMessages[0]!.content).toContain("User: extra context");
+
+		const firstResponse = await firstPrompt;
+		expect(firstResponse.userMessageId).toBe("00000000-0000-4000-8000-000000000103");
+
+		harness.abortController.abort();
+		await Bun.sleep(0);
+	});
+
 	it("does not replay silent-abort marker as agent_message_chunk to ACP clients", async () => {
 		const harness = await createHarness();
 		const stored = new FakeAgentSession(harness.cwdA);
@@ -881,7 +972,7 @@ describe("ACP agent", () => {
 		} as PromptRequest);
 
 		expect(session.forcedToolChoice).toBe("read");
-		expect(session.promptCalls).toEqual(["inspect package.json"]);
+		expect(session.promptCalls).toEqual([{ text: "inspect package.json", streamingBehavior: undefined }]);
 
 		harness.abortController.abort();
 		await Bun.sleep(0);

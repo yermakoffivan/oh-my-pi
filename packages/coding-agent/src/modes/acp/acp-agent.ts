@@ -380,11 +380,15 @@ export class AcpAgent implements Agent {
 
 	async prompt(params: PromptRequest): Promise<PromptResponse> {
 		const record = this.#getSessionRecord(params.sessionId);
+		const converted = this.#convertPromptBlocks(params.prompt);
 		if (record.promptTurn && !record.promptTurn.settled) {
-			throw new Error("ACP prompt already in progress for this session");
+			await this.#runPromptOrCommand(record, converted.text, converted.images, "steer");
+			return {
+				stopReason: "end_turn",
+				userMessageId: params.messageId,
+			};
 		}
 
-		const converted = this.#convertPromptBlocks(params.prompt);
 		const pendingPrompt = Promise.withResolvers<PromptResponse>();
 		record.promptTurn = {
 			userMessageId: params.messageId ?? crypto.randomUUID(),
@@ -407,8 +411,13 @@ export class AcpAgent implements Agent {
 		return await pendingPrompt.promise;
 	}
 
-	async #runPromptOrCommand(record: ManagedSessionRecord, text: string, images: AgentImageContent[]): Promise<void> {
-		const skillResult = await this.#tryRunSkillCommand(record, text);
+	async #runPromptOrCommand(
+		record: ManagedSessionRecord,
+		text: string,
+		images: AgentImageContent[],
+		streamingBehavior?: "steer",
+	): Promise<void> {
+		const skillResult = await this.#tryRunSkillCommand(record, text, streamingBehavior);
 		if (skillResult) {
 			return;
 		}
@@ -437,7 +446,10 @@ export class AcpAgent implements Agent {
 		});
 		if (builtinResult !== false) {
 			if ("prompt" in builtinResult) {
-				await record.session.prompt(builtinResult.prompt, { images });
+				await record.session.prompt(builtinResult.prompt, { images, streamingBehavior });
+				return;
+			}
+			if (streamingBehavior) {
 				return;
 			}
 			const promptTurn = record.promptTurn;
@@ -453,10 +465,14 @@ export class AcpAgent implements Agent {
 			return;
 		}
 
-		await record.session.prompt(text, { images });
+		await record.session.prompt(text, { images, streamingBehavior });
 	}
 
-	async #tryRunSkillCommand(record: ManagedSessionRecord, text: string): Promise<boolean> {
+	async #tryRunSkillCommand(
+		record: ManagedSessionRecord,
+		text: string,
+		streamingBehavior?: "steer",
+	): Promise<boolean> {
 		if (!text.startsWith("/skill:")) {
 			return false;
 		}
@@ -472,13 +488,16 @@ export class AcpAgent implements Agent {
 			return false;
 		}
 		const built = await buildSkillPromptMessage(skill, args);
-		await record.session.promptCustomMessage({
-			customType: SKILL_PROMPT_MESSAGE_TYPE,
-			content: built.message,
-			display: true,
-			details: built.details,
-			attribution: "user",
-		});
+		await record.session.promptCustomMessage(
+			{
+				customType: SKILL_PROMPT_MESSAGE_TYPE,
+				content: built.message,
+				display: true,
+				details: built.details,
+				attribution: "user",
+			},
+			{ streamingBehavior },
+		);
 		return true;
 	}
 
