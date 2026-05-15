@@ -290,7 +290,14 @@ def test_admit_submission_dedupes_by_delivery_before_rate_limit(db: Database) ->
 
 def test_admit_submission_enforces_cap_atomically_across_connections(tmp_path: Path) -> None:
     path = tmp_path / "admission.sqlite"
-    barrier = threading.Barrier(2)
+    # Pre-warm: open + migrate the schema once so the two racing threads below
+    # collide only on `admit_submission` (which is what the test is exercising),
+    # not on `Database.__init__`. `executescript(SCHEMA)` flips journal_mode to
+    # WAL, which needs a brief exclusive lock — without pre-warming, one
+    # thread can lose that race and never reach `barrier.wait()`, deadlocking
+    # its peer at the barrier (no timeout) and hanging `future.result()`.
+    Database(path).close()
+    barrier = threading.Barrier(2, timeout=10)
 
     def admit(delivery_id: str) -> bool:
         database = Database(path)
@@ -308,7 +315,7 @@ def test_admit_submission_enforces_cap_atomically_across_connections(tmp_path: P
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(admit, f"d-{i}") for i in range(2)]
-        accepted = [future.result() for future in futures]
+        accepted = [future.result(timeout=15) for future in futures]
 
     verifier = Database(path)
     try:
