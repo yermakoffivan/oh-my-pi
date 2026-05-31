@@ -186,6 +186,32 @@ describe("render", () => {
 		instance.dispose();
 	});
 
+	test("text is capped by rendered display columns", () => {
+		const module = compileModule(`
+			(defcomponent t ()
+				(view (text "表表表表表")))
+		`);
+		const instance = instantiate(module.components[0], {}, module.views);
+		const line = stripAnsi(instance.render(5)[0] ?? "");
+		expect(line).toBe("表表");
+		expect(Bun.stringWidth(line)).toBeLessThanOrEqual(5);
+		instance.dispose();
+	});
+
+	test("config text respects maxOutputColumns by display width", () => {
+		const module = compileModule(`
+			(defcomponent t (label)
+				(view (text label)))
+		`);
+		const instance = instantiate(module.components[0], { label: "表表表表表" }, module.views, {
+			limits: { maxOutputColumns: 5 },
+		});
+		const line = stripAnsi(instance.render(20)[0] ?? "");
+		expect(line).toBe("表表");
+		expect(Bun.stringWidth(line)).toBeLessThanOrEqual(5);
+		instance.dispose();
+	});
+
 	test("output rows are capped by maxOutputRows", () => {
 		const module = compileModule(`
 			(defcomponent t ()

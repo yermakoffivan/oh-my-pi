@@ -57,7 +57,18 @@ export type ViewLookup = (name: string) =>
 
 const TAB_REPLACEMENT = "   ";
 
+function oneColumnText(text: string): string {
+	for (const char of expandTabsInText(text)) {
+		if (Bun.stringWidth(char) === 1) return char;
+	}
+	return " ";
+}
+
 function cell(char: string, style?: unknown): Cell {
+	return { char: oneColumnText(char), style };
+}
+
+function wideCell(char: string, style?: unknown): Cell {
 	return { char, style };
 }
 
@@ -73,11 +84,18 @@ function blankRow(width: number): Cell[] {
 }
 
 function textCells(text: string, style?: unknown, maxCols = Number.POSITIVE_INFINITY): Cell[] {
-	const cleaned = expandTabsInText(text);
-	const chars = [...cleaned];
-	const limit = Math.min(chars.length, maxCols);
-	const out: Cell[] = new Array(limit);
-	for (let i = 0; i < limit; i++) out[i] = cell(chars[i] ?? " ", style);
+	const out: Cell[] = [];
+	for (const char of expandTabsInText(text)) {
+		const width = Bun.stringWidth(char);
+		if (width <= 0) {
+			const last = out[out.length - 1];
+			if (last) last.char += char;
+			continue;
+		}
+		if (out.length + width > maxCols) break;
+		for (let i = 1; i < width; i++) out.push(wideCell("", style));
+		out.push(wideCell(char, style));
+	}
 	return out;
 }
 
