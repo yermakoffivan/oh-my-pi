@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- Fixed `omp commit` split-commit validation to reject hunk selectors that match no staged hunk before the apply step resets the index ([#2098](https://github.com/can1357/oh-my-pi/issues/2098)).
 - Fixed duplicate `find` matches in multi-target queries by deduplicating overlapping paths in merged results
 - Fixed `find` partial updates to avoid repeated streamed rows while scans are still running
 - Fixed stale late diagnostics from older edits being shown after a file was edited again

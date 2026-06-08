@@ -10,6 +10,7 @@ import {
 	validateTypeConsistency,
 } from "../../../commit/agentic/validation";
 import { validateScope } from "../../../commit/analysis/validation";
+import type { FileHunks } from "../../../commit/types";
 import { normalizeDetails } from "../../../commit/utils";
 import type { CustomTool } from "../../../extensibility/custom-tools/types";
 import * as git from "../../../utils/git";
@@ -68,6 +69,7 @@ export function createSplitCommitTool(
 			const errors: string[] = [];
 			const warnings: string[] = [];
 			const diffText = await git.diff(cwd, { cached: true });
+			const stagedHunksByFile = new Map(git.diff.parseHunks(diffText).map(file => [file.filename, file]));
 
 			const commits: SplitCommitGroup[] = params.commits.map((commit, index) => {
 				const scope = commit.scope?.trim() || null;
@@ -102,7 +104,7 @@ export function createSplitCommitTool(
 				}
 				warnings.push(...summaryValidation.warnings.map(warning => `Commit ${index + 1}: ${warning}`));
 				warnings.push(...typeValidation.warnings.map(warning => `Commit ${index + 1}: ${warning}`));
-				const hunkValidation = validateHunkSelectors(index, changes, files);
+				const hunkValidation = validateHunkSelectors(index, changes, files, stagedHunksByFile);
 				warnings.push(...hunkValidation.warnings);
 				errors.push(...hunkValidation.errors);
 				errors.push(...validateDependencies(index, dependencies, params.commits.length));
@@ -186,6 +188,7 @@ function validateHunkSelectors(
 	commitIndex: number,
 	changes: SplitCommitGroup["changes"],
 	files: string[],
+	stagedHunksByFile: ReadonlyMap<string, FileHunks>,
 ): { errors: string[]; warnings: string[] } {
 	const errors: string[] = [];
 	const warnings: string[] = [];
@@ -195,24 +198,41 @@ function validateHunkSelectors(
 		return { errors, warnings };
 	}
 	for (const change of changes) {
+		const fileHunks = stagedHunksByFile.get(change.path);
+		if (change.hunks.type === "all") continue;
+		if (fileHunks?.isBinary) {
+			errors.push(`${prefix}: cannot select hunks for binary file ${change.path}`);
+			continue;
+		}
 		if (change.hunks.type === "indices") {
 			const invalid = change.hunks.indices.filter(
 				value => !Number.isFinite(value) || Math.floor(value) !== value || value < 1,
 			);
 			if (invalid.length > 0) {
 				errors.push(`${prefix}: invalid hunk indices for ${change.path}`);
+				continue;
+			}
+			if (fileHunks) {
+				const outOfRange = change.hunks.indices.filter(index => index > fileHunks.hunks.length);
+				if (outOfRange.length > 0) {
+					errors.push(`${prefix}: hunk index out of range for ${change.path}`);
+				} else if (git.selectHunks(fileHunks, change.hunks).length === 0) {
+					errors.push(`${prefix}: hunk indices select no hunks for ${change.path}`);
+				}
 			}
 			continue;
 		}
-		if (change.hunks.type === "lines") {
-			const { start, end } = change.hunks;
-			if (!Number.isFinite(start) || !Number.isFinite(end)) {
-				errors.push(`${prefix}: invalid line range for ${change.path}`);
-				continue;
-			}
-			if (Math.floor(start) !== start || Math.floor(end) !== end || start < 1 || end < start) {
-				errors.push(`${prefix}: invalid line range for ${change.path}`);
-			}
+		const { start, end } = change.hunks;
+		if (!Number.isFinite(start) || !Number.isFinite(end)) {
+			errors.push(`${prefix}: invalid line range for ${change.path}`);
+			continue;
+		}
+		if (Math.floor(start) !== start || Math.floor(end) !== end || start < 1 || end < start) {
+			errors.push(`${prefix}: invalid line range for ${change.path}`);
+			continue;
+		}
+		if (fileHunks && git.selectHunks(fileHunks, change.hunks).length === 0) {
+			errors.push(`${prefix}: line range selects no hunks for ${change.path}`);
 		}
 	}
 	return { errors, warnings };

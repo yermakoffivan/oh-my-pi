@@ -665,7 +665,8 @@ function extractFileHeader(diffText: string): string {
 	return headerLines.join("\n");
 }
 
-function selectHunks(file: FileHunks, selector: HunkSelection["hunks"]): FileHunks["hunks"] {
+/** Select hunks from a parsed file diff using the split-commit hunk selector semantics. */
+export function selectHunks(file: FileHunks, selector: HunkSelection["hunks"]): FileHunks["hunks"] {
 	if (selector.type === "indices") {
 		const wanted = new Set(selector.indices.map(v => Math.max(1, Math.floor(v))));
 		return file.hunks.filter(hunk => wanted.has(hunk.index + 1));
