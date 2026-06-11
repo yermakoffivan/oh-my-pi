@@ -23,6 +23,7 @@ import {
 	loadMnemopi,
 	loadMnemopiCore,
 	MnemopiSessionState,
+	requireMnemopi,
 	setMnemopiSessionState,
 } from "@oh-my-pi/pi-coding-agent/mnemopi/state";
 import type { ToolSession } from "@oh-my-pi/pi-coding-agent/tools/index";
@@ -338,9 +339,9 @@ describe("retain.execute (Mnemopi backend)", () => {
 		tempDbPath = undefined;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registeredMnemopiState = undefined;
 		if (tempDbPath) {
 			try {
@@ -406,13 +407,13 @@ describe("retain.execute (Mnemopi backend)", () => {
 		await MemoryRetainTool.createIf(makeSession(settings))!.execute("call-mnemopi-alpha-store", {
 			items: [{ content: "alpha uses tabs" }],
 		});
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registerMnemopiState(betaConfig, { cwd: "/work/project-beta" });
 		const betaRecall = await MemoryRecallTool.createIf(makeSession(settings))!.execute("call-mnemopi-beta-recall", {
 			query: "tabs",
 		});
 		expect(betaRecall.content[0]).toEqual({ type: "text", text: "No relevant memories found." });
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registerMnemopiState(alphaConfig, { cwd: "/work/project-alpha" });
 		const alphaRecall = await MemoryRecallTool.createIf(makeSession(settings))!.execute("call-mnemopi-alpha-recall", {
 			query: "tabs",
@@ -435,9 +436,9 @@ describe("Mnemopi backend lifecycle", () => {
 		tempDbPath = undefined;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registeredMnemopiState = undefined;
 		if (tempDbPath) {
 			try {
@@ -470,6 +471,27 @@ describe("Mnemopi backend lifecycle", () => {
 		expect(state.lastRetainedTurn).toBe(4);
 	});
 
+	// Regression for https://github.com/can1357/oh-my-pi/issues/2314 — the v15.11.0
+	// fix to #1832 made `withMemory`/MCP paths drain pending embed() tasks before
+	// closing the SQLite handle, but the coding-agent's `MnemopiSessionState.dispose()`
+	// kept closing first, so scheduled embeddings raced the close and silently
+	// dropped — leaving `memory_embeddings` permanently empty across the live runtime.
+	it("dispose() drains pending embeddings before closing the SQLite handle (issue #2314)", async () => {
+		const { Mnemopi } = requireMnemopi();
+		const flushSpy = vi.spyOn(Mnemopi.prototype, "flushExtractions");
+		const closeSpy = vi.spyOn(Mnemopi.prototype, "close");
+
+		const state = registerMnemopiState();
+		await state.dispose();
+		registeredMnemopiState = undefined;
+
+		expect(flushSpy).toHaveBeenCalled();
+		expect(closeSpy).toHaveBeenCalled();
+		const firstFlush = flushSpy.mock.invocationCallOrder[0];
+		const firstClose = closeSpy.mock.invocationCallOrder[0];
+		expect(firstFlush).toBeLessThan(firstClose);
+	});
+
 	it("registers subagent aliases from parent Mnemopi state without Hindsight", async () => {
 		const settings = Settings.isolated({ "memory.backend": "mnemopi" });
 		const parentState = registerMnemopiState();
@@ -495,7 +517,7 @@ describe("Mnemopi backend lifecycle", () => {
 		const childState = getMnemopiSessionState(childSession);
 		expect(childState?.aliasOf).toBe(parentState);
 		expect(childState?.getScopedRetainTarget().bank).toBe(parentState.getScopedRetainTarget().bank);
-		childState?.dispose();
+		await childState?.dispose();
 	});
 
 	it("clears every scoped Mnemopi database for per-project-tagged mode", async () => {
@@ -707,9 +729,9 @@ describe("recall.execute (Mnemopi backend)", () => {
 		tempDbPath = undefined;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registeredMnemopiState = undefined;
 		if (tempDbPath) {
 			try {
@@ -760,7 +782,7 @@ describe("recall.execute (Mnemopi backend)", () => {
 		await MemoryRetainTool.createIf(makeSession(settings))!.execute("call-mnemopi-global-store", {
 			items: [{ content: "global memory survives project switches" }],
 		});
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registerMnemopiState(config, { cwd: "/work/project-beta" });
 		const result = await MemoryRecallTool.createIf(makeSession(settings))!.execute("call-mnemopi-global-recall", {
 			query: "project switches",
@@ -782,7 +804,7 @@ describe("recall.execute (Mnemopi backend)", () => {
 			items: [{ content: "the user likes concise CLI output" }],
 		});
 		// Store project-alpha local memory
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registerMnemopiState(
 			makeMnemopiConfig({ scoping: "per-project-tagged", bank: "project-alpha", globalBank: "default" }),
 			{ cwd: "/work/project-alpha" },
@@ -791,7 +813,7 @@ describe("recall.execute (Mnemopi backend)", () => {
 			items: [{ content: "project alpha uses pnpm workspaces" }],
 		});
 		// Store project-beta local memory
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registerMnemopiState(
 			makeMnemopiConfig({ scoping: "per-project-tagged", bank: "project-beta", globalBank: "default" }),
 			{ cwd: "/work/project-beta" },
@@ -800,7 +822,7 @@ describe("recall.execute (Mnemopi backend)", () => {
 			items: [{ content: "project beta deploys to staging first" }],
 		});
 		// Recall from project-alpha should merge global + alpha, exclude beta
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registerMnemopiState(
 			makeMnemopiConfig({ scoping: "per-project-tagged", bank: "project-alpha", globalBank: "default" }),
 			{ cwd: "/work/project-alpha" },
@@ -828,9 +850,9 @@ describe("memory_edit.execute (Mnemopi backend)", () => {
 		tempDbPath = undefined;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registeredMnemopiState = undefined;
 		if (tempDbPath) {
 			try {
@@ -981,9 +1003,9 @@ describe("reflect.execute (Mnemopi backend)", () => {
 		tempDbPath = undefined;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.restoreAllMocks();
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registeredMnemopiState = undefined;
 		if (tempDbPath) {
 			try {
@@ -1070,8 +1092,7 @@ describe("reflect.execute (Mnemopi backend)", () => {
 		await MemoryRetainTool.createIf(makeSession(settings))!.execute("call-mnemopi-reflect-global", {
 			items: [{ content: "the user prefers concise summaries" }],
 		});
-		// Store project-alpha local memory
-		registeredMnemopiState?.dispose();
+		await registeredMnemopiState?.dispose();
 		registerMnemopiState(
 			makeMnemopiConfig({ scoping: "per-project-tagged", bank: "project-alpha", globalBank: "default" }),
 			{ cwd: "/work/project-alpha" },

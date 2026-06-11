@@ -370,11 +370,22 @@ export class MnemopiSessionState {
 		}
 	}
 
-	dispose(): void {
+	async dispose(): Promise<void> {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
-		if (!this.aliasOf) {
-			for (const memory of this.scoped.owned) memory.close();
+		if (this.aliasOf) return;
+		// Drain background embedding/extraction tasks before closing the SQLite
+		// handle. Without this, `scheduleEmbedding`'s deferred `embed()` writes
+		// race the close and silently drop into a closed DB — `memory_embeddings`
+		// stays empty across the live runtime even though the v15.11.0 fix from
+		// #1832 is present in the mnemopi package itself. See issue #2314.
+		for (const memory of this.scoped.owned) {
+			try {
+				await memory.flushExtractions();
+			} catch (error) {
+				logger.warn("Mnemopi: flushExtractions during dispose failed", { error: String(error) });
+			}
+			memory.close();
 		}
 	}
 }

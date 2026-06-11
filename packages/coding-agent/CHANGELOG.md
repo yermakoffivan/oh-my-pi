@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `MnemopiSessionState.dispose()` closing the SQLite handle before background `embed()` writes scheduled by `remember()`/`update()`/consolidation could complete: dispose now awaits `flushExtractions()` on each owned `Mnemopi` before `close()`. Without this drain, the v15.11.0 fix for `withMemory`/MCP paths from #1832 was silently undone by every session shutdown — `memory_embeddings` stayed empty across the live runtime even though the underlying mnemopi fix was in place ([#2314](https://github.com/can1357/oh-my-pi/issues/2314)).
+
 ## [15.11.2] - 2026-06-11
 
 ### Added
