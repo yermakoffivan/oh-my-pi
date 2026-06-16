@@ -154,17 +154,15 @@ function placeholderWithoutFriendlyName(placeholder: string): string | undefined
 
 const PENDING_PLACEHOLDER_SUFFIX_RE = /#(?:[A-Z0-9]+_)?[A-Z0-9]*(?::[ULCM]?)?$/;
 
-/** Withhold partial placeholders from streamed deltas until the full token is available. */
+// Withhold a trailing run that could be the start of a placeholder from streamed
+// deltas, so a partial token is never emitted before deobfuscation can replace
+// it. A lone trailing `#` is always buffered, even right after an alnum/`:`
+// (e.g. `ID#`), because that `#` can open a placeholder; emitting it would
+// corrupt the length-sliced live draft once the token completes. The final
+// non-streamed flush re-emits any buffered tail, so nothing is lost.
 export function stripPendingSecretPlaceholderSuffix(text: string): string {
 	const pendingPlaceholderStart = text.match(PENDING_PLACEHOLDER_SUFFIX_RE);
 	if (pendingPlaceholderStart?.index === undefined) return text;
-	if (
-		pendingPlaceholderStart[0] === "#" &&
-		pendingPlaceholderStart.index > 0 &&
-		/[A-Z0-9:]$/.test(text.slice(0, pendingPlaceholderStart.index))
-	) {
-		return text;
-	}
 	return text.slice(0, pendingPlaceholderStart.index);
 }
 

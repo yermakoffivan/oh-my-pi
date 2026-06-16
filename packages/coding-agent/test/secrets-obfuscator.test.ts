@@ -325,7 +325,11 @@ describe("SecretObfuscator friendlyName placeholders", () => {
 		expect(stripPendingSecretPlaceholderSuffix("before #TOKEN_")).toBe("before ");
 		expect(stripPendingSecretPlaceholderSuffix("before #TOKEN_AB12:")).toBe("before ");
 		expect(stripPendingSecretPlaceholderSuffix("before #TOKEN_AB12:U")).toBe("before ");
-		expect(stripPendingSecretPlaceholderSuffix("before #TOKEN_AB12:U#")).toBe("before #TOKEN_AB12:U#");
+		// A lone trailing `#` is buffered even after an alnum/`:` because it can
+		// open a new placeholder; emitting it would corrupt the length-sliced draft.
+		expect(stripPendingSecretPlaceholderSuffix("before #TOKEN_AB12:U#")).toBe("before #TOKEN_AB12:U");
+		expect(stripPendingSecretPlaceholderSuffix("prefix ID#")).toBe("prefix ID");
+		expect(stripPendingSecretPlaceholderSuffix("count 42#")).toBe("count 42");
 		expect(stripPendingSecretPlaceholderSuffix("before #TOKEN ")).toBe("before #TOKEN ");
 	});
 
