@@ -122,6 +122,11 @@ function buildPlaceholder(secret: string, base: string, friendlyName?: string): 
 /** Regex to match #HASH#, #HASH:U#, and #FRIENDLY_HASH(:hint)# placeholders. */
 const PLACEHOLDER_RE = /#(?:[A-Z0-9]+_)?[A-Z0-9]{4}(?::[ULCM])?#/g;
 
+function placeholderWithoutFriendlyName(placeholder: string): string | undefined {
+	const match = /^#[A-Z0-9]+_([A-Z0-9]{4}(?::[ULCM])?)#$/.exec(placeholder);
+	return match ? `#${match[1]}#` : undefined;
+}
+
 const PENDING_PLACEHOLDER_SUFFIX_RE = /#(?:[A-Z0-9]*|[A-Z0-9]{0,4}(?::[ULCM]?)?|[A-Z0-9]+_[A-Z0-9]{0,4}(?::[ULCM]?)?)$/;
 
 /** Withhold partial placeholders from streamed deltas until the full token is available. */
@@ -267,7 +272,10 @@ export class SecretObfuscator {
 	deobfuscate(text: string): string {
 		if (!this.#hasAny || !text.includes("#")) return text;
 		return text.replace(PLACEHOLDER_RE, match => {
-			return this.#deobfuscateMap.get(match) ?? match;
+			const direct = this.#deobfuscateMap.get(match);
+			if (direct !== undefined) return direct;
+			const unprefixed = placeholderWithoutFriendlyName(match);
+			return unprefixed ? (this.#deobfuscateMap.get(unprefixed) ?? match) : match;
 		});
 	}
 
@@ -349,6 +357,13 @@ export class SecretObfuscator {
 		const existing = this.#deobfuscateMap.get(placeholder);
 		if (existing === undefined || existing === secret) {
 			this.#deobfuscateMap.set(placeholder, secret);
+		}
+		const unprefixed = placeholderWithoutFriendlyName(placeholder);
+		if (unprefixed !== undefined) {
+			const existingUnprefixed = this.#deobfuscateMap.get(unprefixed);
+			if (existingUnprefixed === undefined || existingUnprefixed === secret) {
+				this.#deobfuscateMap.set(unprefixed, secret);
+			}
 		}
 	}
 }

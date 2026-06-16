@@ -209,6 +209,17 @@ describe("SecretObfuscator friendlyName placeholders", () => {
 		expect(obfuscator.deobfuscate("#XRRS#")).toBe("legacy-secret");
 	});
 
+	it("deobfuscates placeholders after friendlyName changes", () => {
+		const renamed = new SecretObfuscator([{ type: "plain", content: "renamed-secret", friendlyName: "new name" }]);
+		const current = renamed.obfuscate("renamed-secret");
+		const oldName = current.replace("#NEWNAME_", "#OLDNAME_");
+		const removedName = new SecretObfuscator([{ type: "plain", content: "renamed-secret" }]);
+
+		expect(current).toMatch(/^#NEWNAME_[A-Z0-9]{4}:L#$/);
+		expect(renamed.deobfuscate(oldName)).toBe("renamed-secret");
+		expect(removedName.deobfuscate(oldName)).toBe("renamed-secret");
+	});
+
 	it("withholds pending placeholders while streaming provider text", () => {
 		expect(stripPendingSecretPlaceholderSuffix("before #")).toBe("before ");
 		expect(stripPendingSecretPlaceholderSuffix("before #AB12:")).toBe("before ");
