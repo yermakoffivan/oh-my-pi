@@ -65,6 +65,24 @@ describe("CustomEditor placeholder decoration", () => {
 	});
 });
 
+describe("CustomEditor custom key handlers", () => {
+	beforeAll(async () => {
+		await initTheme();
+	});
+
+	it("routes raw modified Enter to ctrl+enter before parent newline handling", () => {
+		const editor = new CustomEditor(getEditorTheme());
+		const events: string[] = [];
+		editor.setCustomKeyHandler("ctrl+enter", () => events.push("follow-up"));
+
+		editor.handleInput("draft");
+		editor.handleInput("\nX");
+
+		expect(events).toEqual(["follow-up"]);
+		expect(editor.getText()).toBe("draft");
+	});
+});
+
 describe("CustomEditor space-hold push-to-talk", () => {
 	beforeAll(async () => {
 		await initTheme();

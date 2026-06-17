@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+
+### Fixed
+
+- Fixed `Ctrl+Enter` follow-up handling and the first post-plan-mode `Esc` by routing raw modified-Enter input before editor newline handling and clearing stale double-Esc state when plan mode exits ([#2896](https://github.com/can1357/oh-my-pi/issues/2896)).
+
 ## [16.0.5] - 2026-06-17
 
 ### Added

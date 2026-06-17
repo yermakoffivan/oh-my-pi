@@ -56,6 +56,10 @@ function buildMatchKeys(keys: readonly KeyId[]): Set<string> {
 	return matchKeys;
 }
 
+function isRawModifiedEnter(data: string): boolean {
+	return data.charCodeAt(0) === 10 && data.length > 1;
+}
+
 const BRACKETED_PASTE_START = "\x1b[200~";
 const BRACKETED_PASTE_END = "\x1b[201~";
 const BRACKETED_IMAGE_PATH_REGEX = /\.(?:png|jpe?g|gif|webp)$/i;
@@ -458,6 +462,14 @@ export class CustomEditor extends Editor {
 		}
 
 		const parsedKey = parseKey(data);
+
+		if (isRawModifiedEnter(data)) {
+			const handler = this.#customMatchKeys.get("ctrl+enter");
+			if (handler) {
+				handler();
+				return;
+			}
+		}
 		const canonical = parsedKey !== undefined ? canonicalKeyId(parsedKey) : undefined;
 
 		// Left-arrow on an empty editor: surface for the agent-hub double-tap

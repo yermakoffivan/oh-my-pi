@@ -650,6 +650,7 @@ describe("InteractiveMode plan review rendering", () => {
 
 		mode.planModeEnabled = true;
 		mode.planModePlanFilePath = planFilePath;
+		mode.lastEscapeTime = Date.now();
 		vi.spyOn(mode, "showPlanReview").mockResolvedValue("Approve and execute");
 		const clear = vi.spyOn(mode, "handleClearCommand").mockResolvedValue();
 		const prompt = vi.spyOn(session, "prompt").mockResolvedValue(undefined as never);
@@ -661,6 +662,7 @@ describe("InteractiveMode plan review rendering", () => {
 		});
 
 		expect(clear).toHaveBeenCalledTimes(1);
+		expect(mode.lastEscapeTime).toBe(0);
 		expect(prompt).toHaveBeenCalledWith(expect.any(String), {
 			synthetic: true,
 		});

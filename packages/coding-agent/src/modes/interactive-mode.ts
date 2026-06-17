@@ -1972,6 +1972,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		this.planModePlanFilePath = undefined;
 		this.#planModePreviousTools = undefined;
 		if (!options?.deferModelRestore) this.#planModePreviousModelState = undefined;
+		this.lastEscapeTime = 0;
 		this.#updatePlanModeStatus();
 		const paused = options?.paused ?? false;
 		this.sessionManager.appendModeChange(paused ? "plan_paused" : "none");
