@@ -7,7 +7,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Context, Message } from "@oh-my-pi/pi-ai";
-import { loadSecrets } from "@oh-my-pi/pi-coding-agent/secrets";
+import { getSecretPlaceholderKey, loadSecrets } from "@oh-my-pi/pi-coding-agent/secrets";
 import {
 	obfuscateMessages,
 	obfuscateProviderContext,
@@ -16,6 +16,7 @@ import {
 	stripPendingSecretPlaceholderSuffix,
 } from "@oh-my-pi/pi-coding-agent/secrets/obfuscator";
 import { compileSecretRegex } from "@oh-my-pi/pi-coding-agent/secrets/regex";
+import { getActiveProfile, getConfigRootDir, setProfile } from "@oh-my-pi/pi-utils/dirs";
 import { z } from "zod/v4";
 
 describe("compileSecretRegex", () => {
@@ -160,6 +161,61 @@ describe("SecretObfuscator regex behavior", () => {
 	});
 });
 
+describe("getSecretPlaceholderKey", () => {
+	async function withTempConfigRoot(run: () => Promise<void>): Promise<void> {
+		const originalProfile = getActiveProfile();
+		const originalConfigDir = process.env.PI_CONFIG_DIR;
+		const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+		const configDirName = `.omp-secret-key-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		const configRoot = path.join(os.homedir(), configDirName);
+		try {
+			process.env.PI_CONFIG_DIR = configDirName;
+			setProfile(undefined);
+			await run();
+		} finally {
+			setProfile(undefined);
+			if (originalConfigDir === undefined) {
+				delete process.env.PI_CONFIG_DIR;
+			} else {
+				process.env.PI_CONFIG_DIR = originalConfigDir;
+			}
+			if (originalAgentDir === undefined) {
+				delete process.env.PI_CODING_AGENT_DIR;
+			} else {
+				process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+			}
+			setProfile(originalProfile);
+			await fs.rm(configRoot, { recursive: true, force: true });
+		}
+	}
+
+	it("caches placeholder keys per profile config root", async () => {
+		await withTempConfigRoot(async () => {
+			const alphaKey = "A".repeat(43);
+			const betaKey = "B".repeat(43);
+			setProfile("alpha");
+			await fs.mkdir(getConfigRootDir(), { recursive: true });
+			await fs.writeFile(path.join(getConfigRootDir(), "secret-placeholder.key"), alphaKey);
+			expect(await getSecretPlaceholderKey()).toBe(alphaKey);
+
+			setProfile("beta");
+			await fs.mkdir(getConfigRootDir(), { recursive: true });
+			await fs.writeFile(path.join(getConfigRootDir(), "secret-placeholder.key"), betaKey);
+			expect(await getSecretPlaceholderKey()).toBe(betaKey);
+		});
+	});
+
+	it("rejects truncated placeholder key files", async () => {
+		await withTempConfigRoot(async () => {
+			setProfile("truncated");
+			await fs.mkdir(getConfigRootDir(), { recursive: true });
+			await fs.writeFile(path.join(getConfigRootDir(), "secret-placeholder.key"), "abc123");
+
+			await expect(getSecretPlaceholderKey()).rejects.toThrow("secret placeholder key");
+		});
+	});
+});
+
 describe("SecretObfuscator friendlyName placeholders", () => {
 	it("prefixes plain secret placeholders with sanitized friendly names", () => {
 		const secret = "github_pat_abc123";
@@ -180,6 +236,21 @@ describe("SecretObfuscator friendlyName placeholders", () => {
 
 		expect(obfuscated).toMatch(/#APIKEY_[A-Z0-9]+:L#/);
 		expect(obfuscated).not.toContain(secret);
+		expect(obfuscator.deobfuscate(obfuscated)).toBe(input);
+	});
+
+	it("does not replace plain secrets inside generated friendly placeholders", () => {
+		const longSecret = "long-secret-token";
+		const prefixSecret = "TOKEN";
+		const obfuscator = new SecretObfuscator([
+			{ type: "plain", content: longSecret, friendlyName: "token" },
+			{ type: "plain", content: prefixSecret },
+		]);
+		const input = `${longSecret} ${prefixSecret}`;
+		const obfuscated = obfuscator.obfuscate(input);
+
+		expect(obfuscated).toMatch(/^#TOKEN_[A-Z0-9]+:L# #[A-Z0-9]+:U#$/);
+		expect(obfuscated).not.toContain(longSecret);
 		expect(obfuscator.deobfuscate(obfuscated)).toBe(input);
 	});
 

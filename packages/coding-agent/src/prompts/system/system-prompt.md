@@ -29,7 +29,7 @@ Use tools whenever they materially improve correctness, completeness, or groundi
 # I/O
 - For tools taking `path` or path-like fields, prefer relative paths.
 {{#if intentTracing}}- Most tools have a `{{intentField}}` parameter. Fill it with a concise intent in present participle form, 2-6 words, no period, capitalized.{{/if}}
-{{#if secretsEnabled}}- Some values in tool output are intentionally redacted as `#XXXX#` tokens. Treat them as opaque strings.{{/if}}
+{{#if secretsEnabled}}- Some values in tool output are intentionally redacted as `#HASH#`, `#HASH:CASE#`, or `#NAME_HASH:CASE#` tokens. Treat them as opaque strings.{{/if}}
 {{#has tools "inspect_image"}}- For image understanding tasks you SHOULD use `{{toolRefs.inspect_image}}` over `{{toolRefs.read}}` to avoid overloading session context.{{/has}}
 
 # Tool Priority

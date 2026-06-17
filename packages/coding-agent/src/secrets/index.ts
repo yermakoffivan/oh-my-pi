@@ -6,7 +6,8 @@ import { YAML } from "bun";
 import { type SecretEntry, sanitizeSecretFriendlyName } from "./obfuscator";
 import { compileSecretRegex } from "./regex";
 
-let cachedPlaceholderKey: string | undefined;
+const PLACEHOLDER_KEY_RE = /^[A-Za-z0-9_-]{43}$/;
+const cachedPlaceholderKeys = new Map<string, string>();
 
 /**
  * Per-install secret key for the placeholder digest. Persisted under the config
@@ -15,12 +16,13 @@ let cachedPlaceholderKey: string | undefined;
  * persisted transcripts deobfuscate consistently.
  */
 export async function getSecretPlaceholderKey(): Promise<string> {
-	if (cachedPlaceholderKey !== undefined) return cachedPlaceholderKey;
 	const keyPath = path.join(getConfigRootDir(), "secret-placeholder.key");
+	const cached = cachedPlaceholderKeys.get(keyPath);
+	if (cached !== undefined) return cached;
 
-	const existing = await readNonEmptyKeyFile(keyPath, false);
+	const existing = await readPlaceholderKeyFile(keyPath, false);
 	if (existing !== undefined) {
-		cachedPlaceholderKey = existing;
+		cachedPlaceholderKeys.set(keyPath, existing);
 		return existing;
 	}
 
@@ -28,7 +30,7 @@ export async function getSecretPlaceholderKey(): Promise<string> {
 	await fs.mkdir(getConfigRootDir(), { recursive: true });
 	try {
 		await fs.writeFile(keyPath, generated, { flag: "wx", mode: 0o600 });
-		cachedPlaceholderKey = generated;
+		cachedPlaceholderKeys.set(keyPath, generated);
 		return generated;
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
@@ -36,27 +38,32 @@ export async function getSecretPlaceholderKey(): Promise<string> {
 		// creates the file empty before the bytes land. Wait for non-empty content
 		// instead of caching an empty key (which would be a known, dictionaryable
 		// key and would not match tokens other processes persist with the real key).
-		const winner = await readNonEmptyKeyFile(keyPath, true);
+		const winner = await readPlaceholderKeyFile(keyPath, true);
 		if (winner === undefined) {
 			throw new Error(`secret placeholder key at ${keyPath} exists but is empty or unreadable`);
 		}
-		cachedPlaceholderKey = winner;
+		cachedPlaceholderKeys.set(keyPath, winner);
 		return winner;
 	}
 }
 
-/** Read the key file, optionally retrying briefly until it has non-empty content. */
-async function readNonEmptyKeyFile(keyPath: string, retry: boolean): Promise<string | undefined> {
+/** Read and validate the key file, optionally retrying briefly until a valid key lands. */
+async function readPlaceholderKeyFile(keyPath: string, retry: boolean): Promise<string | undefined> {
 	const attempts = retry ? 50 : 1;
+	let invalidValue: string | undefined;
 	for (let attempt = 0; attempt < attempts; attempt++) {
 		if (attempt > 0) await Bun.sleep(10);
 		try {
 			const value = (await Bun.file(keyPath).text()).trim();
-			if (value.length > 0) return value;
+			if (PLACEHOLDER_KEY_RE.test(value)) return value;
+			if (value.length > 0) invalidValue = value;
 		} catch (err) {
 			if (isEnoent(err)) return undefined;
 			throw err;
 		}
+	}
+	if (invalidValue !== undefined) {
+		throw new Error(`secret placeholder key at ${keyPath} is invalid`);
 	}
 	return undefined;
 }
