@@ -80,22 +80,35 @@ function findNonMatchingReplacement(value: string, regex: RegExp): string | unde
 	const len = value.length;
 	if (len === 0) return undefined;
 	const base = NONMATCHING_REPLACEMENT_CHARS.length;
-	// Exhaust every 1–3 char candidate (the only realistic trigger). Longer
-	// collisions stay bounded to avoid pathological sweeps, but enumerate with
-	// the LEFTMOST position varying fastest so early attempts still sample every
-	// leading character class before the cap is hit.
-	const maxAttempts = len <= 3 ? base ** len : 4096;
 	const chars = new Array<string>(len);
-	for (let n = 0; n < maxAttempts; n++) {
-		let q = n;
-		for (let i = 0; i < len; i++) {
-			chars[i] = NONMATCHING_REPLACEMENT_CHARS[q % base];
-			q = Math.floor(q / base);
+	// Exhaust every 1–3 char candidate (the only realistic trigger).
+	if (len <= 3) {
+		const maxAttempts = base ** len;
+		for (let n = 0; n < maxAttempts; n++) {
+			let q = n;
+			for (let i = 0; i < len; i++) {
+				chars[i] = NONMATCHING_REPLACEMENT_CHARS[q % base];
+				q = Math.floor(q / base);
+			}
+			const candidate = chars.join("");
+			if (candidate === value) continue;
+			regex.lastIndex = 0;
+			if (!regex.test(candidate)) return candidate;
 		}
-		const candidate = chars.join("");
-		if (candidate === value) continue;
-		regex.lastIndex = 0;
-		if (!regex.test(candidate)) return candidate;
+		return undefined;
+	}
+	// Longer collisions stay bounded. First exhaust every single-position
+	// substitution against the deterministic baseline (`AAAA…`, then `!AAA…`,
+	// `A!AA…`, …) so regexes that only need one out-of-class byte — regardless of
+	// position — are handled deterministically before the bounded search gives up.
+	const baseline = NONMATCHING_REPLACEMENT_CHARS[0].repeat(len);
+	for (let position = 0; position < len; position++) {
+		for (const ch of NONMATCHING_REPLACEMENT_CHARS) {
+			const candidate = `${baseline.slice(0, position)}${ch}${baseline.slice(position + 1)}`;
+			if (candidate === value) continue;
+			regex.lastIndex = 0;
+			if (!regex.test(candidate)) return candidate;
+		}
 	}
 	return undefined;
 }
