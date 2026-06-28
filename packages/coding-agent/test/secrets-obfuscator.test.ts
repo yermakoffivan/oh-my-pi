@@ -418,6 +418,29 @@ describe("SecretObfuscator friendlyName placeholders", () => {
 		expect(obfuscator.obfuscate(obfuscated)).toBe(obfuscated);
 	});
 
+	it("leaves placeholders intact when a regex match cuts across their expanded value", () => {
+		// `[A-Z]{8}` meets MIN_OBFUSCATE_SECRET_LEN, but on "YYBBABCDEFGHSECRETUV"
+		// (plain secret `ABCDEFGH`) its greedy 8-char matches start/end inside the
+		// secret's placeholder expansion ("YYBBABCD", "EFGHSECR"). Each got snapped
+		// to the whole `#…#` token, so the two matches mapped to overlapping text
+		// ranges that clobbered on apply and dropped the `SECR` bytes (round-trip
+		// restored "YYBBABCDEFGHETUV"). Such partial-placeholder cuts must be left
+		// alone: the secret stays hidden as its placeholder, the surrounding literals
+		// survive, the round trip is exact, and re-obfuscation is a fixed point.
+		const obfuscator = new SecretObfuscator([
+			{ type: "plain", content: "ABCDEFGH" },
+			{ type: "regex", content: "[A-Z]{8}" },
+		]);
+
+		const obfuscated = obfuscator.obfuscate("YYBBABCDEFGHSECRETUV");
+
+		expect(obfuscated).not.toContain("ABCDEFGH");
+		expect(obfuscated.startsWith("YYBB")).toBe(true);
+		expect(obfuscated.endsWith("SECRETUV")).toBe(true);
+		expect(obfuscator.deobfuscate(obfuscated)).toBe("YYBBABCDEFGHSECRETUV");
+		expect(obfuscator.obfuscate(obfuscated)).toBe(obfuscated);
+	});
+
 	it("keeps regex placeholders stable when inner friendly names change", () => {
 		const sharedKey = "E".repeat(43);
 		const before = new SecretObfuscator(

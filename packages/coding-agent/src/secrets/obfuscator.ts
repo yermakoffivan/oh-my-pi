@@ -635,6 +635,19 @@ export class SecretObfuscator {
 						// and corrupt round-trip deobfuscation.
 						continue;
 					}
+					if (match.partialPlaceholderCut) {
+						// A regex match whose boundary falls inside a prior placeholder's
+						// expanded value gets snapped out to the whole `#…#` token, so two
+						// such matches around one placeholder map to overlapping text ranges
+						// that clobber on apply and drop bytes (e.g. a plain `ABCDEFGH`
+						// secret plus `[A-Z]{8}` turning `YYBBABCDEFGHSECRETUV` into a
+						// placeholder that restored as `YYBBABCDEFGHETUV`). This also runs
+						// before the preserve-input-placeholders branch so re-obfuscation
+						// stays a fixed point once the cut secret is itself an input
+						// placeholder. The cut secret is already obfuscated as that
+						// placeholder, so leave it — and the surrounding bytes — untouched.
+						continue;
+					}
 					if (match.preserveInputPlaceholders) {
 						const span = result.slice(match.start, match.end);
 						const spanOrigin = origin.slice(match.start, match.end);
@@ -977,6 +990,7 @@ export class SecretObfuscator {
 		value: string;
 		canonicalValue: string;
 		scanMatchLength: number;
+		partialPlaceholderCut: boolean;
 		recursive: boolean;
 		preserveGeneratedPlaceholders: boolean;
 		preserveInputPlaceholders: boolean;
@@ -995,6 +1009,7 @@ export class SecretObfuscator {
 			value: string;
 			canonicalValue: string;
 			scanMatchLength: number;
+			partialPlaceholderCut: boolean;
 			recursive: boolean;
 			preserveGeneratedPlaceholders: boolean;
 			preserveInputPlaceholders: boolean;
@@ -1088,6 +1103,7 @@ export class SecretObfuscator {
 				scanMatchLength,
 				recursive,
 				preserveGeneratedPlaceholders,
+				partialPlaceholderCut: mapped.partialPlaceholderCut,
 				preserveInputPlaceholders,
 				inputPlaceholderOutside,
 				inputPlaceholderOutsideIndependentlyMatches,
@@ -1401,7 +1417,13 @@ function mapReplaceRegexMatch(
 	segments: ReadonlyArray<RegexScanSegment>,
 	scanStart: number,
 	scanEnd: number,
-): { start: number; end: number; recursive: boolean; preserveGeneratedPlaceholders: boolean } {
+): {
+	start: number;
+	end: number;
+	recursive: boolean;
+	preserveGeneratedPlaceholders: boolean;
+	partialPlaceholderCut: boolean;
+} {
 	const startSegment = findScanSegment(segments, scanStart);
 	const endSegment = findScanSegment(segments, scanEnd - 1);
 	const start = startSegment.generatedPlaceholder
@@ -1410,6 +1432,13 @@ function mapReplaceRegexMatch(
 	const end = endSegment.generatedPlaceholder
 		? endSegment.textEnd
 		: endSegment.textStart + (scanEnd - endSegment.scanStart);
+	// A match boundary that falls strictly inside a generated placeholder's
+	// expanded value cuts the underlying secret: the snap above pulls the span out
+	// to the whole `#…#` token, so the obfuscate path can leave it alone instead of
+	// consuming a partial placeholder expansion.
+	const partialPlaceholderCut =
+		(startSegment.generatedPlaceholder && scanStart > startSegment.scanStart) ||
+		(endSegment.generatedPlaceholder && scanEnd < endSegment.scanEnd);
 	let recursive = false;
 	let preserveGeneratedPlaceholders = false;
 	for (const segment of segments) {
@@ -1417,7 +1446,7 @@ function mapReplaceRegexMatch(
 		recursive ||= segment.recursive;
 		preserveGeneratedPlaceholders ||= segment.generatedPlaceholder;
 	}
-	return { start, end, recursive, preserveGeneratedPlaceholders };
+	return { start, end, recursive, preserveGeneratedPlaceholders, partialPlaceholderCut };
 }
 
 function findScanSegment(segments: ReadonlyArray<RegexScanSegment>, scanIndex: number): RegexScanSegment {
