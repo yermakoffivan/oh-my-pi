@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `apply_patch` silently overwriting existing destinations on `*** Add File:` and `*** Move to:` — both create and rename now throw `ApplyPatchError` before touching the target, preserving both the source and any pre-existing destination content ([#4023](https://github.com/can1357/oh-my-pi/issues/4023)).
+- Fixed multi-file `apply_patch` continuing to apply later entries after a per-file failure and returning a success-shaped aggregate; the tool now stops at the first per-file failure, sets top-level `isError`, and enumerates applied and not-applied paths in the aggregate content ([#4023](https://github.com/can1357/oh-my-pi/issues/4023)).
+
 ## [16.2.12] - 2026-07-01
 
 ### Breaking Changes

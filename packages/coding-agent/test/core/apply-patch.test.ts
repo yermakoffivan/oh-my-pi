@@ -355,6 +355,44 @@ describe("applyPatch", () => {
 		expect(await Bun.file(path.join(tempDir, "dst.txt")).text()).toBe("line2\n");
 	});
 
+	test("create rejects when target already exists (data-integrity guard)", async () => {
+		const filePath = path.join(tempDir, "exists.txt");
+		await Bun.write(filePath, "original\n");
+
+		await expect(
+			applyPatch({ path: "exists.txt", op: "create", diff: "REPLACEMENT\n" }, { cwd: tempDir }),
+		).rejects.toThrow(ApplyPatchError);
+		await expect(
+			applyPatch({ path: "exists.txt", op: "create", diff: "REPLACEMENT\n" }, { cwd: tempDir }),
+		).rejects.toThrow(/already exists/);
+
+		expect(await Bun.file(filePath).text()).toBe("original\n");
+	});
+
+	test("update+rename rejects when destination already exists (data-integrity guard)", async () => {
+		const srcPath = path.join(tempDir, "src.txt");
+		const dstPath = path.join(tempDir, "dst.txt");
+		await Bun.write(srcPath, "source line\n");
+		await Bun.write(dstPath, "PREEXISTING\n");
+
+		await expect(
+			applyPatch(
+				{ path: "src.txt", op: "update", rename: "dst.txt", diff: "@@\n-source line\n+source line2" },
+				{ cwd: tempDir },
+			),
+		).rejects.toThrow(ApplyPatchError);
+		await expect(
+			applyPatch(
+				{ path: "src.txt", op: "update", rename: "dst.txt", diff: "@@\n-source line\n+source line2" },
+				{ cwd: tempDir },
+			),
+		).rejects.toThrow(/destination already exists/);
+
+		// Neither source nor destination is touched.
+		expect(await Bun.file(srcPath).text()).toBe("source line\n");
+		expect(await Bun.file(dstPath).text()).toBe("PREEXISTING\n");
+	});
+
 	test("multiple hunks in single update", async () => {
 		const filePath = path.join(tempDir, "multi.txt");
 		await Bun.write(filePath, "foo\nbar\nbaz\nqux\n");
@@ -716,5 +754,36 @@ describe("applyCodexPatch (production)", () => {
 
 		// First op should have landed before the failure.
 		expect(await Bun.file(path.join(tempDir, "first.txt")).text()).toBe("A\n");
+	});
+
+	test("*** Add File: rejects when target already exists (data-integrity guard)", async () => {
+		const filePath = path.join(tempDir, "clobber.txt");
+		await Bun.write(filePath, "keep me\n");
+
+		const patch = ["*** Begin Patch", "*** Add File: clobber.txt", "+overwrite", "*** End Patch"].join("\n");
+
+		await expect(applyCodexPatch(patch, { cwd: tempDir })).rejects.toThrow(/already exists/);
+		expect(await Bun.file(filePath).text()).toBe("keep me\n");
+	});
+
+	test("*** Move to: rejects when destination already exists (data-integrity guard)", async () => {
+		const srcPath = path.join(tempDir, "src.txt");
+		const dstPath = path.join(tempDir, "dst.txt");
+		await Bun.write(srcPath, "body\n");
+		await Bun.write(dstPath, "PREEXISTING\n");
+
+		const patch = [
+			"*** Begin Patch",
+			"*** Update File: src.txt",
+			"*** Move to: dst.txt",
+			"@@",
+			"-body",
+			"+body2",
+			"*** End Patch",
+		].join("\n");
+
+		await expect(applyCodexPatch(patch, { cwd: tempDir })).rejects.toThrow(/destination already exists/);
+		expect(await Bun.file(srcPath).text()).toBe("body\n");
+		expect(await Bun.file(dstPath).text()).toBe("PREEXISTING\n");
 	});
 });

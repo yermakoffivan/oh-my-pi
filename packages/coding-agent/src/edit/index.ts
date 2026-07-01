@@ -138,6 +138,7 @@ async function executeApplyPatchPerFile(
 
 	const perFileResults: EditToolPerFileResult[] = [];
 	const contentTexts: string[] = [];
+	let failed = false;
 
 	for (let i = 0; i < fileEntries.length; i++) {
 		const { path, run } = fileEntries[i];
@@ -169,6 +170,29 @@ async function executeApplyPatchPerFile(
 			const displayErrorText = err instanceof HashlineMismatchError ? err.displayMessage : undefined;
 			perFileResults.push({ path, diff: "", isError: true, errorText, displayErrorText });
 			contentTexts.push(`Error editing ${path}: ${errorText}`);
+			failed = true;
+			// Stop at the first per-file failure. Later entries were authored
+			// against the assumption that this file's edit landed; running them
+			// after an error can compound the damage and confuses the agent
+			// about which files still need work.
+			const appliedPaths = perFileResults
+				.slice(0, -1)
+				.filter(r => !r.isError)
+				.map(r => r.path);
+			const skippedPaths = fileEntries.slice(i + 1).map(e => e.path);
+			if (appliedPaths.length > 0) {
+				contentTexts.push(
+					appliedPaths.length === 1
+						? `Applied: ${appliedPaths[0]}.`
+						: `Applied: ${appliedPaths.join(", ")}.`,
+				);
+			}
+			if (skippedPaths.length > 0) {
+				contentTexts.push(
+					`${skippedPaths.length === 1 ? "Not applied" : "Not applied"}: ${skippedPaths.join(", ")}. Re-read the affected files and re-issue only the failed and unapplied entries.`,
+				);
+			}
+			break;
 		}
 
 		// Emit partial result after each file so UI shows progressive completion
@@ -197,6 +221,10 @@ async function executeApplyPatchPerFile(
 			firstChangedLine: perFileResults.find(r => r.firstChangedLine)?.firstChangedLine,
 			perFileResults,
 		}),
+		// Any per-file failure marks the aggregate as an error so the agent
+		// loop sees the tool call as failed instead of falling through to
+		// success semantics on a partial application.
+		...(failed ? { isError: true } : {}),
 	};
 }
 
