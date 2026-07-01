@@ -485,9 +485,16 @@ export class Patcher {
 	 * absent or empty means no provenance was recorded, so the edit applies as
 	 * before. Only runs on the no-drift path, where anchor line numbers index
 	 * the tagged content 1:1.
+	 *
+	 * Prefers {@link SnapshotStore.byIdentity} against the (already-verified)
+	 * live text so a tag-collision on the short hash can't misroute the check
+	 * onto a different snapshot's seen-line set. Falls back to short-tag
+	 * lookup when no exact-identity match is retained (e.g. LRU-evicted).
 	 */
-	#assertSeenLines(section: PatchSection, canonicalPath: string, expected: string): void {
-		const seen = this.snapshots.byHash(canonicalPath, expected)?.seenLines;
+	#assertSeenLines(section: PatchSection, canonicalPath: string, expected: string, normalized: string): void {
+		const seen = (
+			this.snapshots.byIdentity(canonicalPath, normalized) ?? this.snapshots.byHash(canonicalPath, expected)
+		)?.seenLines;
 		if (!seen || seen.size === 0) return;
 		const unseen = section.collectAnchorLines().filter(line => !seen.has(line));
 		if (unseen.length === 0) return;
@@ -520,7 +527,22 @@ export class Patcher {
 	}): ApplyResult {
 		const { section, canonicalPath, exists, normalized, edits } = args;
 		const expected = exists ? section.fileHash : undefined;
-		const liveMatches = expected !== undefined && computeFileHash(normalized) === expected;
+		// Short-tag equality is NECESSARY but not SUFFICIENT for no-drift: the
+		// 4-hex tag is a 16-bit fingerprint and collides across genuinely
+		// different content. When the store holds at least one snapshot for
+		// (path, expected), require an exact-identity match on the live text
+		// before taking the no-drift path — otherwise a collided live file
+		// would be treated as the snapshot and edits would target the wrong
+		// content. When no snapshot is retained (e.g. LRU-evicted, or the tag
+		// was minted in a prior session we no longer track), fall back to the
+		// short-tag match: recovery has nothing to replay against and the
+		// short tag is the only identity signal we have.
+		const shortMatch = expected !== undefined && computeFileHash(normalized) === expected;
+		const liveMatches =
+			shortMatch &&
+			expected !== undefined &&
+			(this.snapshots.byHash(canonicalPath, expected) === null ||
+				this.snapshots.byIdentity(canonicalPath, normalized)?.hash === expected);
 
 		// Resolve `replace_block N:` edits to concrete ranges before recovery
 		// runs. Block anchors are expressed against the snapshot the section tag
@@ -559,7 +581,7 @@ export class Patcher {
 			// The line numbers in `edits` index the exact content the tag names.
 			// Reject any anchor the read never displayed: editing lines the model
 			// has not seen is the off-by-memory mistake that mangles files.
-			if (expected !== undefined) this.#assertSeenLines(section, canonicalPath, expected);
+			if (expected !== undefined) this.#assertSeenLines(section, canonicalPath, expected, normalized);
 			const result = applyEdits(normalized, resolved);
 			return withResolveWarnings(blockResolutions.length > 0 ? { ...result, blockResolutions } : result);
 		}

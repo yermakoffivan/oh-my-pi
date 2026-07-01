@@ -199,7 +199,17 @@ function applyPreviewEdits(args: {
 	if (!options.skipHashValidation && expected === undefined) {
 		throw new Error(missingSnapshotTagMessage(section.path));
 	}
-	const liveMatches = expected !== undefined && computeFileHash(normalized) === expected;
+	// Short-tag equality is necessary but not sufficient: the 4-hex tag is a
+	// 16-bit fingerprint and collides across genuinely different content. When
+	// the store retains a snapshot for the tag, require an exact-identity
+	// match on the live text before previewing along the no-drift path. Mirror
+	// of `Patcher.#applyWithRecovery`; keeps preview and apply consistent.
+	const shortMatch = expected !== undefined && computeFileHash(normalized) === expected;
+	const liveMatches =
+		shortMatch &&
+		expected !== undefined &&
+		(snapshots.byHash(absolutePath, expected) === null ||
+			snapshots.byIdentity(absolutePath, normalized)?.hash === expected);
 	const edits = parsePreviewEdits(section, options.streaming);
 	const resolved = resolvePreviewEdits({ section, absolutePath, normalized, snapshots, expected, liveMatches, edits });
 	if (options.skipHashValidation || expected === undefined || liveMatches) return applyEdits(normalized, resolved);

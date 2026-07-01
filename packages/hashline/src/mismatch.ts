@@ -91,6 +91,16 @@ export class MismatchError extends Error {
 				`The current file hashes to ${HL_FILE_HASH_SEP}${details.actualFileHash}. Re-read the file with \`read\` to copy a current ${HL_FILE_PREFIX}path${HL_FILE_HASH_SEP}tag${HL_FILE_SUFFIX} header — never invent the tag and never reuse one from a prior session.`,
 			];
 		}
+		// Same short tag on both sides but the recorded snapshot's text
+		// differs from live: the 4-hex tag is a 16-bit fingerprint and
+		// collided across genuinely different content. Explain plainly so the
+		// model doesn't chase a "tags match, why does it fail?" red herring.
+		if (details.expectedFileHash === details.actualFileHash) {
+			return [
+				`Edit rejected${pathText}: file content differs from the recorded snapshot despite a matching tag.`,
+				`Two different contents share the short tag ${HL_FILE_HASH_SEP}${details.expectedFileHash} (accidental collision). Re-read the file with \`read\` to refresh the header against the current content before retrying.`,
+			];
+		}
 		return [
 			`Edit rejected${pathText}: file changed between read and edit.`,
 			`Section is bound to ${HL_FILE_HASH_SEP}${details.expectedFileHash}, but the current file hashes to ${HL_FILE_HASH_SEP}${details.actualFileHash}. If a prior edit in this session modified this file, copy the ${HL_FILE_PREFIX}path${HL_FILE_HASH_SEP}newhash${HL_FILE_SUFFIX} header from that edit's response; otherwise re-read the file with \`read\` to refresh the tag before retrying.`,

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the streaming edit-diff preview so a short-tag collision with a recorded snapshot no longer previews an anchored edit against unrelated live content — the preview mirrors `Patcher`'s identity-confirmed no-drift check. ([#4024](https://github.com/can1357/oh-my-pi/issues/4024))
+
 ## [16.2.12] - 2026-07-01
 
 ### Breaking Changes

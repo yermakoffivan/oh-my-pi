@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed hashline snapshot identity so a 16-bit tag collision no longer misroutes a `SWAP`/`DEL`/`INS` onto the wrong file: `InMemorySnapshotStore.record` now dedupes by full normalized text (not by the short tag), a new `SnapshotStore.byIdentity(path, text)` performs exact-identity lookup, and `Patcher` verifies full-text identity before taking the no-drift path. When live content collides with a recorded snapshot on the short tag but differs, the patcher raises a distinct `MismatchError` naming the collision instead of silently applying anchored edits to unrelated content. ([#4024](https://github.com/can1357/oh-my-pi/issues/4024))
+
 ## [16.2.8] - 2026-06-30
 
 ### Fixed

@@ -109,4 +109,38 @@ describe("InMemorySnapshotStore", () => {
 		// A tag no retained version carries yields no matches.
 		expect(store.findByHash(tag === "0000" ? "FFFF" : "0000")).toEqual([]);
 	});
+
+	it("keeps two versions that share a short-tag but differ in content (no collision fusion)", () => {
+		const store = new InMemorySnapshotStore();
+		// Reporter-supplied pair: both hash to short tag "1D84" but are
+		// genuinely different files. The store MUST NOT dedupe them into one
+		// entry — that would treat two snapshots as identical and let a
+		// collided live file be accepted as either.
+		const a = "line one 263\nline two 4471\n";
+		const b = "line one 410\nline two 6970\n";
+		expect(computeFileHash(a)).toBe(computeFileHash(b));
+
+		const tag = store.record(PATH, a, [2]);
+		expect(store.record(PATH, b, [1])).toBe(tag);
+
+		// Both versions retained side-by-side; seenLines are per-version, not fused.
+		expect(store.byIdentity(PATH, a)?.text).toBe(a);
+		expect(store.byIdentity(PATH, b)?.text).toBe(b);
+		expect(store.byIdentity(PATH, a)?.seenLines).toEqual(new Set([2]));
+		expect(store.byIdentity(PATH, b)?.seenLines).toEqual(new Set([1]));
+		// findByHash surfaces every retained version with that short tag.
+		const bothByTag = store.findByHash(tag);
+		expect(new Set(bothByTag.map(snapshot => snapshot.text))).toEqual(new Set([a, b]));
+	});
+
+	it("byIdentity resolves the exact snapshot for a given path+text", () => {
+		const store = new InMemorySnapshotStore();
+		const text = "alpha\nbeta\n";
+		store.record(PATH, text);
+		expect(store.byIdentity(PATH, text)?.text).toBe(text);
+		// Different text on the same path → no identity match.
+		expect(store.byIdentity(PATH, "alpha\nBETA\n")).toBeNull();
+		// Cross-path lookup rejected even for identical text.
+		expect(store.byIdentity(OTHER, text)).toBeNull();
+	});
 });

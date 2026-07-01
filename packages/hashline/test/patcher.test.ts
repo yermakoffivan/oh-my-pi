@@ -126,6 +126,51 @@ describe("Patcher snapshot tag integrity", () => {
 		}
 		expect(fs.get(PATH)).toBe("current\n");
 	});
+
+	it("rejects the no-drift path when live text collides with the recorded snapshot on the short tag", async () => {
+		// Reporter-supplied pair: `line one 263\\nline two 4471\\n` and
+		// `line one 410\\nline two 6970\\n` both hash to short tag "1D84".
+		// Snapshot recorded from the first text; live file holds the second.
+		// Applying `SWAP 2.=2` under the shared tag must NOT edit the wrong
+		// file — the patcher's no-drift path must verify full-text identity
+		// before trusting the short tag.
+		const snapshotText = "line one 263\nline two 4471\n";
+		const liveText = "line one 410\nline two 6970\n";
+		expect(computeFileHash(snapshotText)).toBe(computeFileHash(liveText));
+
+		const fs = new InMemoryFilesystem([[PATH, liveText]]);
+		const snapshots = new InMemorySnapshotStore();
+		const tag = snapshots.record(PATH, snapshotText, [2]);
+
+		const patcher = new Patcher({ fs, snapshots });
+		await expect(patcher.apply(Patch.parse(`[${PATH}#${tag}]\nSWAP 2.=2:\n+edited from v1`))).rejects.toBeInstanceOf(
+			MismatchError,
+		);
+		// Disk untouched: the collided live file was NOT rewritten.
+		expect(fs.get(PATH)).toBe(liveText);
+	});
+
+	it("surfaces a collision-specific diagnostic when the tag matches but content differs", async () => {
+		const snapshotText = "line one 263\nline two 4471\n";
+		const liveText = "line one 410\nline two 6970\n";
+		const fs = new InMemoryFilesystem([[PATH, liveText]]);
+		const snapshots = new InMemorySnapshotStore();
+		const tag = snapshots.record(PATH, snapshotText);
+		const patcher = new Patcher({ fs, snapshots });
+
+		try {
+			await patcher.apply(Patch.parse(`[${PATH}#${tag}]\nSWAP 2.=2:\n+X`));
+			throw new Error("expected MismatchError");
+		} catch (error) {
+			expect(error).toBeInstanceOf(MismatchError);
+			const message = (error as MismatchError).displayMessage;
+			// Distinct from the ordinary "file changed" branch: the message must
+			// name the collision so the model doesn't chase a tags-match paradox.
+			expect(message).toMatch(/differs from the recorded snapshot despite a matching tag/);
+			expect(message).toMatch(/accidental collision/);
+		}
+		expect(fs.get(PATH)).toBe(liveText);
+	});
 });
 
 describe("Patcher mandatory snapshot tag policy", () => {
