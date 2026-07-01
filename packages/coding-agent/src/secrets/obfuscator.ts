@@ -1197,28 +1197,27 @@ export class SecretObfuscator {
 				// the secret's expanded value). Rewriting across the token drops bytes
 				// (obfuscate) or drifts the redaction across re-obfuscation passes
 				// (replace), so the cut secret must stay as its existing placeholder.
-				// But the wholly-outside prefix BEFORE the placeholder can itself be a
-				// complete match (e.g. `[A-Z0-9]{8,12}` greedily spanning `SECRETUV` into
-				// an `ABCDEFGH` placeholder): that prefix is provider-visible
-				// secret-shaped content, not a drift artifact. Re-run the regex bounded
-				// to just before the placeholder — full left context kept, so lookbehind
-				// still evaluates — and redact the independent prefix match on its own;
-				// otherwise skip past the placeholder and match trailing content fresh.
+				// But the wholly-outside prefix BEFORE the placeholder is still
+				// provider-visible content covered by the regex. Probe against the full
+				// expanded scan text so right-hand context supplied by the placeholder
+				// still satisfies lookahead/alternatives, then clamp the accepted match
+				// to the prefix boundary so bytes owned by the placeholder stay atomic.
+				// Otherwise skip past the placeholder and match trailing content fresh.
 				const cutResumeIndex = mapped.cutResumeIndex;
 				const prefixScanEnd = mapped.firstPlaceholderScanStart;
 				let handledPrefix = false;
 				if (prefixScanEnd > match.index) {
 					regex.lastIndex = match.index;
-					const prefixMatch = regex.exec(scanText.slice(0, prefixScanEnd));
-					if (prefixMatch !== null && prefixMatch[0].length > 0) {
+					const prefixMatch = regex.exec(scanText);
+					if (prefixMatch !== null && prefixMatch[0].length > 0 && prefixMatch.index < prefixScanEnd) {
 						const prefixStart = prefixMatch.index;
-						const prefixEnd = prefixMatch.index + prefixMatch[0].length;
+						const prefixEnd = Math.min(prefixMatch.index + prefixMatch[0].length, prefixScanEnd);
 						const prefixMapped = mapReplaceRegexMatch(regexScan.segments, prefixStart, prefixEnd);
-						if (!prefixMapped.partialPlaceholderCut) {
+						if (!prefixMapped.partialPlaceholderCut && prefixEnd > prefixStart) {
 							start = prefixStart;
 							end = prefixEnd;
-							scanMatchValue = prefixMatch[0];
-							scanMatchLength = prefixMatch[0].length;
+							scanMatchValue = scanText.slice(prefixStart, prefixEnd);
+							scanMatchLength = scanMatchValue.length;
 							mapped = prefixMapped;
 							regex.lastIndex = prefixEnd;
 							handledPrefix = true;

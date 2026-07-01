@@ -644,6 +644,25 @@ describe("SecretObfuscator friendlyName placeholders", () => {
 		expect(obf.obfuscate(second)).toBe(second);
 	});
 
+	it("redacts a cut prefix using placeholder right context instead of leaking it", () => {
+		const obf = new SecretObfuscator(
+			[
+				{ type: "plain", content: "ABCDEFGH" },
+				{ type: "regex", content: "SECRETUVABCD|SECRETUV(?=ABCD)|[A-Z]{8}" },
+			],
+			"Q".repeat(43),
+		);
+		const placeholdered = obf.obfuscate("ABCDEFGH");
+		const second = obf.obfuscate(`SECRETUV${placeholdered}`);
+
+		// The prefix match depends on lookahead supplied by the expanded placeholder.
+		// It must still be redacted while the placeholder's own bytes stay atomic.
+		expect(second).not.toContain("SECRETUV");
+		expect(second).toContain(placeholdered);
+		expect(obf.deobfuscate(second)).toBe("SECRETUVABCDEFGH");
+		expect(obf.obfuscate(second)).toBe(second);
+	});
+
 	it("keeps default replace markers stable when a lookbehind match spills into a prior placeholder", () => {
 		const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1n";
 		const entries = [
