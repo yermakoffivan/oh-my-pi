@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed shell output streaming to drop after a caller-provided byte limit and to use a bounded native callback bridge queue, preventing fast producers from growing memory before JS truncation. ([#4078](https://github.com/can1357/oh-my-pi/issues/4078))
+
 ## [16.2.11] - 2026-07-01
 
 ### Fixed

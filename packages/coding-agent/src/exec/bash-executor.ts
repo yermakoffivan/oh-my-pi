@@ -8,7 +8,7 @@ import { ExponentialYield } from "@oh-my-pi/pi-agent-core/utils/yield";
 import { executeShell, type MinimizerOptions, Shell, type ShellRunResult } from "@oh-my-pi/pi-natives";
 import { isExecutable, type ShellConfig } from "@oh-my-pi/pi-utils/procmgr";
 import { Settings, type ShellMinimizerSettings } from "../config/settings";
-import { OutputSink } from "../session/streaming-output";
+import { DEFAULT_MAX_BYTES, OutputSink } from "../session/streaming-output";
 import { resolveOutputMaxColumns, resolveOutputSinkHeadBytes } from "../tools/output-meta";
 import { getOrCreateSnapshot } from "../utils/shell-snapshot";
 import { buildNonInteractiveEnv } from "./non-interactive-env";
@@ -229,12 +229,15 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 			? buildUserShellCommand(shell, args, prefixedCommand)
 			: prefixedCommand;
 
+	const headBytes = resolveOutputSinkHeadBytes(settings);
+	const outputStreamByteLimit = DEFAULT_MAX_BYTES + headBytes;
+
 	// Create output sink for truncation and artifact handling
 	const sink = new OutputSink({
 		onChunk: options?.onChunk,
 		artifactPath: options?.artifactPath,
 		artifactId: options?.artifactId,
-		headBytes: resolveOutputSinkHeadBytes(settings),
+		headBytes,
 		maxColumns: resolveOutputMaxColumns(settings),
 		chunkThrottleMs: options?.onChunk ? (options.chunkThrottleMs ?? 50) : 0,
 	});
@@ -319,6 +322,7 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 						env: commandEnv,
 						timeoutMs: options?.timeout,
 						signal: runAbortController.signal,
+						outputStreamByteLimit,
 					},
 					(err, chunk) => {
 						if (!err) {
@@ -336,6 +340,7 @@ export async function executeBash(command: string, options?: BashExecutorOptions
 						minimizer,
 						timeoutMs: options?.timeout,
 						signal: runAbortController.signal,
+						outputStreamByteLimit,
 					},
 					(err, chunk) => {
 						if (!err) {

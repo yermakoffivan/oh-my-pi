@@ -32,6 +32,7 @@
 - Fixed performance degradation in session context and branch path reconstruction on deep linear histories.
 - Fixed agents repeating the same tool call across turns without corrective steering by wiring the cross-turn tool-call loop guard into sessions.
 - Fixed OpenAI-compatible model discovery (including LM Studio) reporting flat default context windows when proxies omit context length metadata, by resolving discovered IDs against the bundled model reference catalog to inherit accurate context windows, output limits, display names, modalities, and reasoning support.
+- Fixed native bash output streaming to stop forwarding chunks after the tool-result byte budget and to use a bounded native bridge queue, preventing fast producers from growing memory before JS truncation. ([#4078](https://github.com/can1357/oh-my-pi/issues/4078))
 
 ## [16.2.11] - 2026-07-01
 

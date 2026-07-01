@@ -23,6 +23,7 @@ use brush_core::{
 use bytes::Bytes;
 use clap::Parser;
 use flume::Sender;
+use parking_lot::Mutex;
 #[cfg(not(unix))]
 use tokio::io::AsyncReadExt as _;
 use tokio::{sync::Mutex as TokioMutex, time};
@@ -58,6 +59,82 @@ impl ShellAbortState {
 		}
 	}
 }
+const OUTPUT_STREAM_LIMIT_NOTICE: &str = "\n[Output truncated by native shell stream limit]\n";
+
+#[derive(Clone)]
+struct OutputStream {
+	sender: Sender<String>,
+	state:  Arc<Mutex<OutputStreamState>>,
+	limit:  Option<usize>,
+}
+
+#[derive(Default)]
+struct OutputStreamState {
+	forwarded_bytes: usize,
+	closed:          bool,
+}
+
+fn output_stream(
+	sender: Option<Sender<String>>,
+	byte_limit: Option<usize>,
+) -> Option<OutputStream> {
+	let sender = sender?;
+	Some(OutputStream {
+		sender,
+		state: Arc::new(Mutex::new(OutputStreamState::default())),
+		limit: byte_limit,
+	})
+}
+
+impl OutputStream {
+	fn send(&self, text: &str) {
+		if text.is_empty() {
+			return;
+		}
+
+		let mut state = self.state.lock();
+		if state.closed {
+			return;
+		}
+
+		let Some(limit) = self.limit else {
+			let _ = self.sender.try_send(text.to_string());
+			return;
+		};
+
+		let remaining = limit.saturating_sub(state.forwarded_bytes);
+		if remaining == 0 {
+			let _ = self.sender.try_send(OUTPUT_STREAM_LIMIT_NOTICE.to_string());
+			state.closed = true;
+			return;
+		}
+
+		let chunk = truncate_to_utf8_boundary(text, remaining);
+		if chunk.is_empty() {
+			let _ = self.sender.try_send(OUTPUT_STREAM_LIMIT_NOTICE.to_string());
+			state.closed = true;
+			return;
+		}
+
+		state.forwarded_bytes = state.forwarded_bytes.saturating_add(chunk.len());
+		let _ = self.sender.try_send(chunk.to_string());
+		if chunk.len() < text.len() {
+			let _ = self.sender.try_send(OUTPUT_STREAM_LIMIT_NOTICE.to_string());
+			state.closed = true;
+		}
+	}
+}
+
+fn truncate_to_utf8_boundary(text: &str, max_bytes: usize) -> &str {
+	if text.len() <= max_bytes {
+		return text;
+	}
+	let mut end = max_bytes;
+	while end > 0 && !text.is_char_boundary(end) {
+		end -= 1;
+	}
+	&text[..end]
+}
 
 #[derive(Clone)]
 struct ShellConfig {
@@ -82,10 +159,13 @@ struct ShellRunConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct ShellRunOptions {
-	pub command:    String,
-	pub cwd:        Option<String>,
-	pub env:        Option<HashMap<String, String>>,
+	pub command: String,
+	pub cwd: Option<String>,
+	pub env: Option<HashMap<String, String>>,
 	pub timeout_ms: Option<u32>,
+	/// Maximum UTF-8 bytes forwarded to the streaming callback before output is
+	/// dropped.
+	pub output_stream_byte_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -107,13 +187,16 @@ pub struct ShellRunResult {
 
 #[derive(Debug, Clone, Default)]
 pub struct ShellExecuteOptions {
-	pub command:       String,
-	pub cwd:           Option<String>,
-	pub env:           Option<HashMap<String, String>>,
-	pub session_env:   Option<HashMap<String, String>>,
-	pub timeout_ms:    Option<u32>,
+	pub command: String,
+	pub cwd: Option<String>,
+	pub env: Option<HashMap<String, String>>,
+	pub session_env: Option<HashMap<String, String>>,
+	pub timeout_ms: Option<u32>,
 	pub snapshot_path: Option<String>,
-	pub minimizer:     Option<minimizer::MinimizerOptions>,
+	pub minimizer: Option<minimizer::MinimizerOptions>,
+	/// Maximum UTF-8 bytes forwarded to the streaming callback before output is
+	/// dropped.
+	pub output_stream_byte_limit: Option<usize>,
 }
 
 pub type ShellExecuteResult = ShellRunResult;
@@ -154,6 +237,7 @@ impl Shell {
 		on_chunk: Option<Sender<String>>,
 		mut cancel_token: CancelToken,
 	) -> Result<ShellRunResult> {
+		let stream = output_stream(on_chunk, options.output_stream_byte_limit);
 		let run_config = ShellRunConfig {
 			command:   options.command,
 			cwd:       options.cwd,
@@ -165,7 +249,7 @@ impl Shell {
 			self.abort_state.clone(),
 			self.config.clone(),
 			run_config,
-			on_chunk,
+			stream,
 			&mut cancel_token,
 		)
 		.await
@@ -210,6 +294,7 @@ pub async fn execute_shell(
 	on_chunk: Option<Sender<String>>,
 	cancel_token: CancelToken,
 ) -> Result<ShellExecuteResult> {
+	let stream = output_stream(on_chunk, options.output_stream_byte_limit);
 	let minimizer = options
 		.minimizer
 		.as_ref()
@@ -221,7 +306,7 @@ pub async fn execute_shell(
 	};
 	let run_config =
 		ShellRunConfig { command: options.command, cwd: options.cwd, env: options.env, minimizer };
-	run_shell_oneshot(config, run_config, on_chunk, cancel_token).await
+	run_shell_oneshot(config, run_config, stream, cancel_token).await
 }
 
 /// Optional per-stream raw byte sinks for [`execute_shell_streams`].
@@ -265,7 +350,7 @@ async fn run_shell_session(
 	abort_state: ShellAbortState,
 	config: ShellConfig,
 	run_config: ShellRunConfig,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	ct: &mut CancelToken,
 ) -> Result<ShellRunResult> {
 	let tokio_cancel = CancellationToken::new();
@@ -351,7 +436,7 @@ async fn run_shell_session(
 async fn run_shell_oneshot(
 	config: ShellConfig,
 	run_config: ShellRunConfig,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	ct: CancelToken,
 ) -> Result<ShellExecuteResult> {
 	let tokio_cancel = CancellationToken::new();
@@ -757,7 +842,7 @@ impl ChainCapture {
 async fn run_shell_command(
 	session: &mut ShellSessionCore,
 	options: &ShellRunConfig,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	cancel_token: CancellationToken,
 	spawn_registry: Arc<process::SpawnRegistry>,
 ) -> Result<(ExecutionResult, Option<MinimizerResult>)> {
@@ -808,7 +893,7 @@ async fn run_shell_command(
 async fn run_shell_command_single(
 	session: &mut ShellSessionCore,
 	options: &ShellRunConfig,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	cancel_token: CancellationToken,
 	spawn_registry: Arc<process::SpawnRegistry>,
 	minimizer_mode: minimizer::engine::MinimizerMode,
@@ -891,7 +976,7 @@ async fn run_shell_command_single(
 async fn run_shell_command_segmented_chain(
 	session: &mut ShellSessionCore,
 	options: &ShellRunConfig,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	cancel_token: CancellationToken,
 	spawn_registry: Arc<process::SpawnRegistry>,
 ) -> Result<(ExecutionResult, Option<MinimizerResult>)> {
@@ -1033,7 +1118,7 @@ async fn run_shell_command_once(
 	session: &mut ShellSessionCore,
 	mut command: String,
 	mut params: ExecutionParameters,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	cancel_token: CancellationToken,
 	spawn_registry: Arc<process::SpawnRegistry>,
 	capture_mode: CommandCaptureMode,
@@ -1562,7 +1647,7 @@ struct BufferedOutput {
 
 async fn read_output(
 	reader: fs::File,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	cancel_token: CancellationToken,
 	activity: Sender<()>,
 ) {
@@ -1670,7 +1755,7 @@ async fn read_output(
 
 async fn read_output_buffered(
 	reader: fs::File,
-	on_chunk: Option<Sender<String>>,
+	on_chunk: Option<OutputStream>,
 	cancel_token: CancellationToken,
 	activity: Sender<()>,
 	max_capture_bytes: usize,
@@ -1830,9 +1915,9 @@ fn read_nonblocking<T: std::os::fd::AsRawFd>(file: &T, buf: &mut [u8]) -> io::Re
 	}
 }
 
-fn emit_chunk(text: &str, callback: Option<&Sender<String>>) {
+fn emit_chunk(text: &str, callback: Option<&OutputStream>) {
 	if let Some(callback) = callback {
-		let _ = callback.send(text.to_string());
+		callback.send(text);
 	}
 }
 
@@ -3860,6 +3945,59 @@ replace = [{ pattern = "^.+$", replacement = "PWD" }]
 			.await
 			.expect("reader task should stop after cancellation")
 			.expect("reader task should not panic");
+	}
+
+	#[cfg(unix)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn streaming_output_limit_drops_without_blocking_pipe_reader() {
+		let (tx, rx) = flume::bounded::<String>(1);
+		let options = ShellExecuteOptions {
+			command: "yes x | head -c 1048576".to_string(),
+			output_stream_byte_limit: Some(1024),
+			..Default::default()
+		};
+
+		let result = time::timeout(
+			Duration::from_secs(5),
+			execute_shell(options, Some(tx), CancelToken::default()),
+		)
+		.await
+		.expect("streaming output bridge should not block pipe draining")
+		.expect("execute should succeed");
+
+		assert_eq!(result.exit_code, Some(0));
+		assert!(!result.cancelled);
+		assert!(!result.timed_out);
+		assert!(rx.len() <= 1, "bounded callback queue grew past capacity");
+	}
+
+	#[cfg(unix)]
+	#[tokio::test(flavor = "multi_thread")]
+	async fn buffered_output_limit_drops_without_blocking_pipe_reader() {
+		let (reader, mut writer) = pipe_to_files("test").expect("test pipe should be created");
+		let (tx, rx) = flume::bounded::<String>(1);
+		let stream = output_stream(Some(tx), Some(1024));
+		let cancel = CancellationToken::new();
+		let (activity_tx, _activity_rx) = flume::bounded(1);
+		let reader_handle =
+			tokio::spawn(read_output_buffered(reader, stream, cancel, activity_tx, 512));
+		let writer_handle = tokio::task::spawn_blocking(move || {
+			let chunk = vec![b'x'; 1024 * 1024];
+			writer.write_all(&chunk).expect("write pipe");
+		});
+
+		time::timeout(Duration::from_secs(5), writer_handle)
+			.await
+			.expect("bounded output stream should not block the pipe writer")
+			.expect("writer task should not panic");
+		let output = time::timeout(Duration::from_secs(5), reader_handle)
+			.await
+			.expect("buffered reader should finish after writer closes")
+			.expect("reader task should not panic");
+
+		assert!(output.exceeded);
+		assert_eq!(output.input_bytes, 1024 * 1024);
+		assert!(rx.len() <= 1, "bounded callback queue grew past capacity");
 	}
 
 	#[cfg(unix)]

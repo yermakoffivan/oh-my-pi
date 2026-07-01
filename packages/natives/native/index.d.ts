@@ -1394,6 +1394,8 @@ export interface ShellExecuteOptions {
   snapshotPath?: string
   /** Optional per-command output minimizer configuration. */
   minimizer?: MinimizerOptions
+  /** Maximum UTF-8 bytes forwarded to `on_chunk` before output is dropped. */
+  outputStreamByteLimit?: number
   /** Abort signal for cancelling the operation. */
   signal?: unknown
 }
@@ -1418,6 +1420,8 @@ export interface ShellRunOptions {
   env?: Record<string, string>
   /** Timeout in milliseconds before cancelling the command. */
   timeoutMs?: number
+  /** Maximum UTF-8 bytes forwarded to `on_chunk` before output is dropped. */
+  outputStreamByteLimit?: number
   /** Abort signal for cancelling the operation. */
   signal?: unknown
 }

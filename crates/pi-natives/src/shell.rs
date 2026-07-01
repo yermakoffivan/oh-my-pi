@@ -90,36 +90,40 @@ impl From<ShellOptions> for CoreShellOptions {
 #[napi(object)]
 pub struct ShellRunOptions<'env> {
 	/// Command string to execute in the shell.
-	pub command:    String,
+	pub command: String,
 	/// Working directory for the command.
-	pub cwd:        Option<String>,
+	pub cwd: Option<String>,
 	/// Environment variables to apply for this command only.
-	pub env:        Option<HashMap<String, String>>,
+	pub env: Option<HashMap<String, String>>,
 	/// Timeout in milliseconds before cancelling the command.
 	pub timeout_ms: Option<u32>,
+	/// Maximum UTF-8 bytes forwarded to `on_chunk` before output is dropped.
+	pub output_stream_byte_limit: Option<u32>,
 	/// Abort signal for cancelling the operation.
-	pub signal:     Option<Unknown<'env>>,
+	pub signal: Option<Unknown<'env>>,
 }
 
 /// Options for executing a shell command via brush-core.
 #[napi(object)]
 pub struct ShellExecuteOptions<'env> {
 	/// Command string to execute in the shell.
-	pub command:       String,
+	pub command: String,
 	/// Working directory for the command.
-	pub cwd:           Option<String>,
+	pub cwd: Option<String>,
 	/// Environment variables to apply for this command only.
-	pub env:           Option<HashMap<String, String>>,
+	pub env: Option<HashMap<String, String>>,
 	/// Environment variables to apply once per session.
-	pub session_env:   Option<HashMap<String, String>>,
+	pub session_env: Option<HashMap<String, String>>,
 	/// Timeout in milliseconds before cancelling the command.
-	pub timeout_ms:    Option<u32>,
+	pub timeout_ms: Option<u32>,
 	/// Optional snapshot file to source on session creation.
 	pub snapshot_path: Option<String>,
 	/// Optional per-command output minimizer configuration.
-	pub minimizer:     Option<MinimizerOptions>,
+	pub minimizer: Option<MinimizerOptions>,
+	/// Maximum UTF-8 bytes forwarded to `on_chunk` before output is dropped.
+	pub output_stream_byte_limit: Option<u32>,
 	/// Abort signal for cancelling the operation.
-	pub signal:        Option<Unknown<'env>>,
+	pub signal: Option<Unknown<'env>>,
 }
 
 /// Telemetry for a single minimization.
@@ -217,10 +221,11 @@ impl Shell {
 		let cancel_token = task::CancelToken::new(options.timeout_ms, options.signal);
 		let inner = Arc::clone(&self.inner);
 		let run_options = CoreShellRunOptions {
-			command:    options.command,
-			cwd:        options.cwd,
-			env:        options.env,
+			command: options.command,
+			cwd: options.cwd,
+			env: options.env,
 			timeout_ms: options.timeout_ms,
+			output_stream_byte_limit: output_stream_limit(options.output_stream_byte_limit),
 		};
 		task::future(env, "shell.run", async move {
 			let (chunk_tx, drain_handle) = bridge_chunks(on_chunk);
@@ -269,13 +274,14 @@ pub fn execute_shell<'env>(
 ) -> Result<PromiseRaw<'env, ShellRunResult>> {
 	let cancel_token = task::CancelToken::new(options.timeout_ms, options.signal);
 	let exec_options = CoreShellExecuteOptions {
-		command:       options.command,
-		cwd:           options.cwd,
-		env:           options.env,
-		session_env:   options.session_env,
-		timeout_ms:    options.timeout_ms,
+		command: options.command,
+		cwd: options.cwd,
+		env: options.env,
+		session_env: options.session_env,
+		timeout_ms: options.timeout_ms,
 		snapshot_path: options.snapshot_path,
-		minimizer:     options.minimizer.map(Into::into),
+		minimizer: options.minimizer.map(Into::into),
+		output_stream_byte_limit: output_stream_limit(options.output_stream_byte_limit),
 	};
 	task::future(env, "shell.execute", async move {
 		let (chunk_tx, drain_handle) = bridge_chunks(on_chunk);
@@ -290,13 +296,20 @@ pub fn execute_shell<'env>(
 	})
 }
 
+const BRIDGE_CHUNK_QUEUE_CAPACITY: usize = 64;
+
+fn output_stream_limit(limit: Option<u32>) -> Option<usize> {
+	let limit = limit?;
+	Some(usize::try_from(limit).unwrap_or(usize::MAX))
+}
+
 fn bridge_chunks(
 	on_chunk: Option<ThreadsafeFunction<String>>,
 ) -> (Option<flume::Sender<String>>, Option<napi::tokio::task::JoinHandle<()>>) {
 	let Some(on_chunk) = on_chunk else {
 		return (None, None);
 	};
-	let (tx, rx) = flume::unbounded::<String>();
+	let (tx, rx) = flume::bounded::<String>(BRIDGE_CHUNK_QUEUE_CAPACITY);
 	let handle = napi::tokio::spawn(async move {
 		// Hard cap on one coalesced batch so the JS main thread never sees a
 		// multi-MB napi callback (a giant single string would stall sanitize +
@@ -416,10 +429,11 @@ mod tests {
 			shell
 				.run(
 					CoreShellRunOptions {
-						command:    "/bin/sh -c 'printf \"%d\\n\" \"$$\"; sleep 0.5'".to_string(),
-						cwd:        None,
-						env:        None,
+						command: "/bin/sh -c 'printf \"%d\\n\" \"$$\"; sleep 0.5'".to_string(),
+						cwd: None,
+						env: None,
 						timeout_ms: None,
+						output_stream_byte_limit: None,
 					},
 					Some(tx),
 					CancelToken::default(),
@@ -463,10 +477,11 @@ mod tests {
 			shell
 				.run(
 					CoreShellRunOptions {
-						command:    "sh -c 'sleep 30 & wait'".to_string(),
-						cwd:        None,
-						env:        None,
+						command: "sh -c 'sleep 30 & wait'".to_string(),
+						cwd: None,
+						env: None,
 						timeout_ms: None,
+						output_stream_byte_limit: None,
 					},
 					None,
 					cancel,
