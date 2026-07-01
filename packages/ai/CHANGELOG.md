@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed standard Xiaomi MiMo API-key validation to use `mimo-v2.5`, matching the upstream-supported model and Token Plan validation. ([#4062](https://github.com/can1357/oh-my-pi/issues/4062))
+
 ## [16.2.12] - 2026-07-01
 
 ### Changed

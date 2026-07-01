@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { loginXiaomi } from "@oh-my-pi/pi-ai/registry/oauth/xiaomi";
-import { xiaomiModelManagerOptions } from "@oh-my-pi/pi-catalog/provider-models/openai-compat";
+import {
+	DEFAULT_MODEL_PER_PROVIDER,
+	PROVIDER_DESCRIPTORS,
+	xiaomiModelManagerOptions,
+} from "@oh-my-pi/pi-catalog/provider-models";
 import type { FetchImpl } from "@oh-my-pi/pi-catalog/types";
 import modelsJson from "../src/models.json";
 
@@ -26,6 +30,30 @@ describe("issue-772: Xiaomi MiMo token-plan (tp-) keys", () => {
 		const url = seen[0]!;
 		expect(url).toContain(TOKEN_PLAN_SGP_HOST);
 		expect(url).toContain("/chat/completions");
+	});
+
+	it("loginXiaomi validates standard keys with MiMo v2.5", async () => {
+		let body: unknown;
+		const fetchMock: FetchImpl = async (_input, init) => {
+			body = JSON.parse(String(init?.body));
+			return new Response("{}", { status: 200 });
+		};
+
+		await loginXiaomi({
+			onAuth: () => {},
+			onPrompt: async () => "sk-test-key",
+			onProgress: () => {},
+			fetch: fetchMock,
+		});
+
+		expect(body).toMatchObject({ model: "mimo-v2.5" });
+	});
+
+	it("defaults standard Xiaomi provider to MiMo v2.5", () => {
+		const descriptor = PROVIDER_DESCRIPTORS.find(provider => provider.providerId === "xiaomi");
+
+		expect(descriptor?.defaultModel).toBe("mimo-v2.5");
+		expect(DEFAULT_MODEL_PER_PROVIDER.xiaomi).toBe("mimo-v2.5");
 	});
 
 	it("xiaomiModelManagerOptions discovers models from the SGP token-plan host when given a tp- key", async () => {
