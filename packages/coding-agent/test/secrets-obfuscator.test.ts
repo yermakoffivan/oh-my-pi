@@ -1357,6 +1357,35 @@ describe("SecretObfuscator friendlyName placeholders", () => {
 		}
 	});
 
+	it("resolves a three-character match-everything regex without the removed exhaustive sweep", () => {
+		// Regression: `findNonMatchingReplacement` used to special-case `len <= 3`
+		// with a fully exhaustive search over every `base**length` candidate
+		// (base = 90, so 90**3 = 729000) before falling back to the whitespace/keyed
+		// marker. A 3-byte default replace regex that matches every candidate
+		// (`[\s\S]{3}`) rejects the ENTIRE sweep on every single match, so this exact
+		// shape burned the whole 729000-candidate search (measured ~70ms on this
+		// machine) on one redaction. The fix drops the special case so length <= 3
+		// goes through the same bounded single-position-substitution search already
+		// used for longer values (O(length * 90)), measured at ~1ms for this case —
+		// correctness is unchanged (the caller's keyed marker is still the fixed
+		// point once the bounded search exhausts), but the pathological cost is gone.
+		const obf = new SecretObfuscator([{ type: "regex", mode: "replace", content: "[\\s\\S]{3}" }], "Q".repeat(43));
+
+		const start = performance.now();
+		const out = obf.obfuscate("ZZc");
+		const elapsed = performance.now() - start;
+
+		// Correctness: the search still terminates with a usable, stable redaction.
+		expect(out).toHaveLength(3);
+		expect(obf.obfuscate(out)).toBe(out);
+		expect(obf.obfuscate(obf.obfuscate(out))).toBe(out);
+		// Perf guard: bounded search resolves in ~1ms here; the removed exhaustive
+		// branch took ~70ms+ for this exact case. 30ms is far above the bounded cost
+		// (even generously slower CI hardware) yet well under half the exhaustive
+		// branch's cost, so a reinstated `len <= 3` sweep reliably fails this.
+		expect(elapsed).toBeLessThan(30);
+	});
+
 	it("keeps a whole-match default replace regex idempotent when no candidate avoids the regex", () => {
 		// `[\s\S]{8}` matches every possible 8-byte value (unlike `\S{n}` above, it
 		// also matches whitespace and line terminators), so `findNonMatchingReplacement`

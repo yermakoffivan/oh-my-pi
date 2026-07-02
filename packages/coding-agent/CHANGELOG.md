@@ -5,6 +5,7 @@
 ### Fixed
 
 - Fixed a default (no custom `replacement`) `mode: "replace"` regex whose deterministic redaction has no same-length candidate able to escape the regex (a pathological match-everything config such as `[\s\S]{8}`) churning its marker across every re-obfuscation pass and across obfuscator restarts, drifting provider prompt-cache prefixes. The fallback kept the content-hash-derived replacement, which the regex itself re-matches on the next pass; since that replacement is hashed from its own bytes (not the original secret), each pass rehashed it into a different value. The fallback now reuses the same key+length-only marker already used for per-chunk remainder redactions, which depends on nothing but the per-install key and the value's length, so re-matching and re-redacting it always reproduces the identical marker.
+- Fixed `findNonMatchingReplacement` exhaustively enumerating every `90^length` candidate (up to 729,000 for a 3-character match) before falling back, when a default `mode: "replace"` regex of length <= 3 matches every candidate (e.g. `[\s\S]{3}`). Each such match could burn tens of milliseconds; a modest tool output could stall provider requests. All lengths now use the same bounded single-position-substitution search already used for longer values (O(length * 90) instead of O(90^length)).
 
 ## [16.3.1] - 2026-07-02
 

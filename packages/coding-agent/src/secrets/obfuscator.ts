@@ -127,41 +127,34 @@ function regexRematchesInContext(candidate: string, regex: RegExp, ctx: RegexMat
  * `Z`/`ZZ` sentinel, or an astronomical hash collision) is still redacted to a
  * STABLE nonmatching value instead of shipping the raw secret. A nonmatching
  * candidate is a fixed point under re-obfuscation — the regex never re-matches it,
- * so it cannot re-leak on a later pass. Candidates are enumerated deterministically
- * over a stable ASCII alphabet: alphanumerics first (usually enough), then
- * punctuation fallback bytes when the regex covers every alphanumeric candidate.
- * This keeps the common case readable while still finding a nonmatching
- * same-length redaction for patterns such as `[A-Za-z0-9]{2}`. When the regex
- * covers every non-whitespace candidate (e.g. `\S{n}`), whitespace markers
- * (a full space/tab run, then a single whitespace byte among non-whitespace
- * filler) are tried as a last resort. The sweep is bounded so a match-everything
- * regex (`.`/`[\s\S]`, which also matches space and tab) terminates, returning
- * undefined to let the caller keep the sentinel as the only available fixed point.
+ * so it cannot re-leak on a later pass. The search stays bounded to O(length *
+ * alphabet) regardless of value length: first exhaust every single-position
+ * substitution against a deterministic baseline (`AAAA…`, then `!AAA…`, `A!AA…`,
+ * …) so any regex that only needs one out-of-class byte — regardless of position —
+ * is found in a handful of probes rather than enumerating every combination (which
+ * for a 3-byte match-everything config, e.g. `[\s\S]{3}`, would otherwise run
+ * 90**3 = 729000 candidates through the regex on every single match, stalling
+ * provider requests). Candidates are enumerated deterministically over a stable
+ * ASCII alphabet: alphanumerics first (usually enough), then punctuation fallback
+ * bytes when the regex covers every alphanumeric candidate. When the regex still
+ * matches around a lone perturbed byte (for example `[A-Za-z0-9].*` matching the
+ * unperturbed tail), full-width same-byte candidates (`!!!!!`, `_____`, …) are
+ * tried next. When the regex covers every non-whitespace candidate (e.g. `\S{n}`),
+ * whitespace markers (a full space/tab run, then a single whitespace byte among
+ * non-whitespace filler) are tried as a last resort. A genuine match-everything
+ * regex (`.`/`[\s\S]`, which also matches space and tab) still exhausts this bounded
+ * sweep and returns undefined, letting the caller keep its own fixed-point fallback
+ * — bounded search can in principle miss an escape that depends jointly on
+ * multiple positions in a way no single-position swap reaches, but no realistic
+ * secret-redaction regex (character classes, literal matches, anchored/bounded
+ * repeats) has that shape.
  */
 function findNonMatchingReplacement(value: string, regex: RegExp, context: RegexMatchContext): string | undefined {
 	const len = value.length;
 	if (len === 0) return undefined;
-	const base = NONMATCHING_REPLACEMENT_CHARS.length;
-	const chars = new Array<string>(len);
-	// Exhaust every 1–3 char candidate (the only realistic trigger).
-	if (len <= 3) {
-		const maxAttempts = base ** len;
-		for (let n = 0; n < maxAttempts; n++) {
-			let q = n;
-			for (let i = 0; i < len; i++) {
-				chars[i] = NONMATCHING_REPLACEMENT_CHARS[q % base];
-				q = Math.floor(q / base);
-			}
-			const candidate = chars.join("");
-			if (candidate === value) continue;
-			if (!regexRematchesInContext(candidate, regex, context)) return candidate;
-		}
-		return findWhitespaceFallbackReplacement(value, regex, context);
-	}
-	// Longer collisions stay bounded. First exhaust every single-position
-	// substitution against the deterministic baseline (`AAAA…`, then `!AAA…`,
-	// `A!AA…`, …) so regexes that only need one out-of-class byte — regardless of
-	// position — are handled deterministically.
+	// Exhaust every single-position substitution against the deterministic baseline
+	// first (covers the common case cheaply), then fall back to full-width same-byte
+	// candidates for a regex that only rejects a lone perturbed byte in context.
 	const baseline = NONMATCHING_REPLACEMENT_CHARS[0].repeat(len);
 	for (let position = 0; position < len; position++) {
 		for (const ch of NONMATCHING_REPLACEMENT_CHARS) {
