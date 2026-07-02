@@ -431,18 +431,22 @@ export class AdvisorRuntime {
 }
 
 /**
- * Match the stable prefix `pi-ai` emits for provider refusal `stop_reason`s
- * (`Refusal`, optionally `Refusal (<category>)`), independent of whether the
- * refusal reached the runtime as a rejection or via `state.error` re-thrown
- * inside `#drain`. See `anthropic.ts` refusal branch: category-tagged messages
- * take the form `Refusal (reasoning_extraction): ...`; missing-details
- * fallbacks surface as `Refusal (no details provided)`. Kept as a text match
- * because `Agent.state.error` collapses the structured `stopDetails` down to
- * `errorMessage`; the prefix is the last stable signal we have.
+ * Match every shape `pi-ai` emits for provider refusal `stop_reason`s,
+ * independent of whether the refusal reached the runtime as a rejection or via
+ * `state.error` re-thrown inside `#drain`. See `anthropic.ts` refusal branch:
+ * category-tagged messages take the form `Refusal (reasoning_extraction): ...`,
+ * category-less refusals with an explanation collapse to `Refusal: ...`,
+ * missing-details fallbacks surface as `Refusal (no details provided)`, and
+ * bare `Refusal` is used when neither category nor explanation is populated.
+ * Kept as a text match because `Agent.state.error` collapses the structured
+ * `stopDetails` down to `errorMessage`; the prefix is the last stable signal
+ * we have.
  */
 function isRefusalError(err: unknown): boolean {
 	const msg = err instanceof Error ? err.message : String(err);
-	return msg.startsWith("Refusal (") || msg === "Refusal";
+	// Anchor to a boundary so unrelated `Refusal…` prose in an error text can't
+	// masquerade as an Anthropic refusal envelope.
+	return /^Refusal(?::| \(|$)/.test(msg);
 }
 
 type TextualContent = string | readonly (TextContent | ImageContent)[];

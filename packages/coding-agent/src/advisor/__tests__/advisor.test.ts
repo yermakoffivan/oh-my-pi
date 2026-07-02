@@ -1511,6 +1511,106 @@ describe("advisor", () => {
 			expect(runtime.backlog).toBe(0);
 		});
 
+		it("degrades on category-less `Refusal: <explanation>` and bare `Refusal` shapes", async () => {
+			// pi-ai's Anthropic branch drops the parenthesized category when
+			// `stop_details.category` is null, producing `Refusal: <explanation>`; a
+			// missing explanation collapses to bare `Refusal`. Both must trip the
+			// strip-and-reprime recovery just like the category-tagged form.
+			for (const shape of ["Refusal: policy violation.", "Refusal"]) {
+				const promptInputs: string[] = [];
+				let strippedNotices = 0;
+				const agent: AdvisorAgent = {
+					prompt: async input => {
+						promptInputs.push(input);
+						if (input.includes("_thinking:_")) throw new Error(shape);
+					},
+					abort: () => {},
+					reset: () => {},
+					state: { messages: [] },
+				};
+				const messages: AgentMessage[] = [
+					{ role: "user", content: "review this", timestamp: 1 } as AgentMessage,
+					{
+						role: "assistant",
+						content: [
+							{ type: "thinking", thinking: `thinking that triggers ${shape}` },
+							{ type: "text", text: "Response body." },
+						],
+						timestamp: 2,
+					} as unknown as AgentMessage,
+				];
+				const host: AdvisorRuntimeHost = {
+					snapshotMessages: () => messages,
+					enqueueAdvice: () => {},
+					notifyThinkingStripped: () => {
+						strippedNotices++;
+					},
+				};
+				const runtime = new AdvisorRuntime(agent, host, 0);
+
+				runtime.onTurnEnd(messages);
+				await Bun.sleep(0);
+				await Bun.sleep(0);
+				await Bun.sleep(0);
+
+				expect(promptInputs).toHaveLength(2);
+				expect(promptInputs[0]).toContain("_thinking:_");
+				expect(promptInputs[1]).not.toContain("_thinking:_");
+				expect(promptInputs[1]).toContain("Response body.");
+				expect(strippedNotices).toBe(1);
+				expect(runtime.backlog).toBe(0);
+			}
+		});
+
+		it("does not degrade on unrelated errors that merely contain the word `Refusal`", async () => {
+			// Guard against a broad `includes("Refusal")` predicate: an upstream
+			// stack trace or a tool error mentioning "refusal" must NOT hijack the
+			// degrade path — the runtime should still trip the normal watchdog.
+			const promptInputs: string[] = [];
+			let strippedNotices = 0;
+			const agent: AdvisorAgent = {
+				prompt: async input => {
+					promptInputs.push(input);
+					throw new Error("HTTP 500: internal error while logging Refusal metadata");
+				},
+				abort: () => {},
+				reset: () => {},
+				state: { messages: [] },
+			};
+			const messages: AgentMessage[] = [
+				{ role: "user", content: "review this", timestamp: 1 } as AgentMessage,
+				{
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "reasoning" },
+						{ type: "text", text: "Body." },
+					],
+					timestamp: 2,
+				} as unknown as AgentMessage,
+			];
+			const failures: unknown[] = [];
+			const host: AdvisorRuntimeHost = {
+				snapshotMessages: () => messages,
+				enqueueAdvice: () => {},
+				notifyFailure: err => failures.push(err),
+				notifyThinkingStripped: () => {
+					strippedNotices++;
+				},
+			};
+			const runtime = new AdvisorRuntime(agent, host, 0);
+
+			runtime.onTurnEnd(messages);
+			await Bun.sleep(0);
+			await Bun.sleep(0);
+			await Bun.sleep(0);
+			await Bun.sleep(0);
+
+			expect(strippedNotices).toBe(0);
+			expect(promptInputs).toHaveLength(3);
+			for (const p of promptInputs) expect(p).toContain("_thinking:_");
+			expect(failures).toHaveLength(1);
+		});
+
 		it("respects an explicit includeThinking:false at construction time", async () => {
 			// The `advisor.includeThinking` escape hatch: user opts out proactively,
 			// so no thinking ever renders and no auto-degrade path runs.
