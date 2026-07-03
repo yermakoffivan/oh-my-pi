@@ -58,6 +58,16 @@ function renderProgressText(progress: AgentProgress, expanded: boolean, uiTheme:
 	return strip(component.render(120));
 }
 
+function taskNeedsTimedRepaint(progress: AgentProgress): boolean {
+	const details: TaskToolDetails = {
+		projectAgentsDir: null,
+		results: [],
+		totalDurationMs: 1,
+		progress: [progress],
+	};
+	return taskToolRenderer.timeBasedPartialResult({}, { content: [], details });
+}
+
 describe("task live progress rendering", () => {
 	let uiTheme: Theme;
 
@@ -122,6 +132,29 @@ describe("task live progress rendering", () => {
 
 	it("does not request spinner ticks for static partial progress", () => {
 		expect("animatedPartialResult" in taskToolRenderer).toBe(false);
+		expect(taskNeedsTimedRepaint(makeProgress([]))).toBe(false);
+	});
+
+	it("requests timed repaints for wall-clock-only progress rows", () => {
+		expect(
+			taskNeedsTimedRepaint({
+				...makeProgress([]),
+				currentTool: "bash",
+				currentToolStartMs: Date.now(),
+			}),
+		).toBe(true);
+		expect(
+			taskNeedsTimedRepaint({
+				...makeProgress([]),
+				retryState: {
+					attempt: 1,
+					maxAttempts: 3,
+					delayMs: 30_000,
+					errorMessage: "rate limited",
+					startedAtMs: Date.now(),
+				},
+			}),
+		).toBe(true);
 	});
 
 	it("renders running progress identically across spinner frames", () => {

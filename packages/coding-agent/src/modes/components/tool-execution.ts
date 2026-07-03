@@ -38,7 +38,7 @@ import {
 	resolveImageOptions,
 	truncateToWidth,
 } from "../../tools/render-utils";
-import { toolRenderers } from "../../tools/renderers";
+import { toolRenderers, type ToolRenderSnapshot } from "../../tools/renderers";
 import { TODO_STRIKE_TOTAL_FRAMES, type TodoToolDetails } from "../../tools/todo";
 import { isFramedBlockComponent, renderStatusLine, WidthAwareText } from "../../tui";
 import { sanitizeWithOptionalSixelPassthrough } from "../../utils/sixel";
@@ -191,6 +191,8 @@ export interface ToolExecutionHandle {
 export const SPINNER_RENDER_INTERVAL_MS = 80;
 /** Advance the spinner glyph at its classic ~12.5fps step (mirrors `Loader`). */
 export const SPINNER_GLYPH_ADVANCE_MS = 80;
+/** Refresh wall-clock-only partial result text at low cost, e.g. task retry countdowns. */
+const TIME_BASED_PARTIAL_REPAINT_INTERVAL_MS = 1000;
 
 /** Phase-locked spinner glyph index shared by every live tool block so parallel
  * spinners advance in lockstep instead of each tracking its own start time. */
@@ -261,6 +263,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	// Spinner animation for partial task results
 	#spinnerFrame?: number;
 	#spinnerInterval?: NodeJS.Timeout;
+	#timedRepaintInterval?: NodeJS.Timeout;
 	// Todo write completion strikethrough reveal animation
 	#todoStrikeInterval?: NodeJS.Timeout;
 	// Track if args are still being streamed (for edit/write spinner)
@@ -568,7 +571,8 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 	}
 
 	/**
-	 * Start or stop spinner animation for live states that visibly tick.
+	 * Start or stop repaint timers for live states that visibly change between
+	 * progress events.
 	 */
 	#updateSpinnerAnimation(): void {
 		// Live partial tool blocks stay repaintable until a terminal result seals
@@ -582,6 +586,7 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			| {
 					animatedPendingPreview?: boolean | ((args: unknown) => boolean);
 					animatedPartialResult?: boolean | ((args: unknown) => boolean);
+					timeBasedPartialResult?: boolean | ((args: unknown, result: ToolRenderSnapshot) => boolean);
 			  }
 			| undefined;
 		const pendingAnimation = renderer?.animatedPendingPreview;
@@ -609,6 +614,16 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			!isBackgroundAsyncRunning &&
 			(pendingCallConsumesSpinner || partialResultConsumesSpinner);
 		const needsSpinner = isStreamingArgs || isLivePartialTool || this.#displaceableByToolName === "job";
+		const timedPartialRepaint = renderer?.timeBasedPartialResult;
+		const needsTimedRepaint =
+			!needsSpinner &&
+			this.#isPartial &&
+			this.#result !== undefined &&
+			!isBackgroundAsyncRunning &&
+			(typeof timedPartialRepaint === "function"
+				? timedPartialRepaint(this.#args, this.#result)
+				: timedPartialRepaint === true);
+		this.#updateTimedRepaint(needsTimedRepaint);
 		if (needsSpinner && !this.#spinnerInterval) {
 			const frameCount = theme.spinnerFrames.length;
 			const frame = sharedSpinnerFrame(frameCount);
@@ -634,6 +649,18 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 				this.#spinnerFrame = undefined;
 				this.#renderState.spinnerFrame = undefined;
 			}
+		}
+	}
+
+	#updateTimedRepaint(needsTimedRepaint: boolean): void {
+		if (needsTimedRepaint && !this.#timedRepaintInterval) {
+			this.#timedRepaintInterval = setInterval(() => {
+				if (this.#maybeFreezeBackgroundTask()) return;
+				this.#ui.requestRender();
+			}, TIME_BASED_PARTIAL_REPAINT_INTERVAL_MS);
+		} else if (!needsTimedRepaint && this.#timedRepaintInterval) {
+			clearInterval(this.#timedRepaintInterval);
+			this.#timedRepaintInterval = undefined;
 		}
 	}
 
@@ -814,6 +841,10 @@ export class ToolExecutionComponent extends Container implements NativeScrollbac
 			this.#spinnerInterval = undefined;
 			this.#spinnerFrame = undefined;
 			this.#renderState.spinnerFrame = undefined;
+		}
+		if (this.#timedRepaintInterval) {
+			clearInterval(this.#timedRepaintInterval);
+			this.#timedRepaintInterval = undefined;
 		}
 		this.#stopTodoStrikeAnimation();
 		this.#editDiffAbort?.abort();

@@ -32,10 +32,16 @@ import { sshToolRenderer } from "./ssh";
 import { todoToolRenderer } from "./todo";
 import { writeToolRenderer } from "./write";
 
+export interface ToolRenderSnapshot {
+	content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+	details?: unknown;
+	isError?: boolean;
+}
+
 export type ToolRenderer = {
 	renderCall: (args: unknown, options: RenderResultOptions, theme: Theme) => Component;
 	renderResult: (
-		result: { content: Array<{ type: string; text?: string }>; details?: unknown; isError?: boolean },
+		result: ToolRenderSnapshot,
 		options: RenderResultOptions & { renderContext?: Record<string, unknown> },
 		theme: Theme,
 		args?: unknown,
@@ -74,6 +80,12 @@ export type ToolRenderer = {
 	 * `options.spinnerFrame`.
 	 */
 	animatedPartialResult?: boolean | ((args: unknown) => boolean);
+	/**
+	 * Whether the partial-result path can change from wall-clock time without a
+	 * new tool progress event. Schedules a low-frequency repaint without setting
+	 * `options.spinnerFrame`.
+	 */
+	timeBasedPartialResult?: boolean | ((args: unknown, result: ToolRenderSnapshot) => boolean);
 	/**
 	 * Whether replacing a streamed pending placeholder with the first result
 	 * requires a full viewport repaint. Use for merged renderers whose pending
