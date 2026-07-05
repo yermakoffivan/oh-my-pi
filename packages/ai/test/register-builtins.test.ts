@@ -1,5 +1,10 @@
-import { describe, expect, it } from "bun:test";
-import { setBedrockProviderModule, streamBedrock } from "@oh-my-pi/pi-ai/providers/register-builtins";
+import { describe, expect, it, vi } from "bun:test";
+import {
+	setBedrockProviderModule,
+	setCursorProviderModule,
+	streamBedrock,
+	streamCursor,
+} from "@oh-my-pi/pi-ai/providers/register-builtins";
 import type { AssistantMessage, Context, Model } from "@oh-my-pi/pi-ai/types";
 import type { AssistantMessageEventStream } from "@oh-my-pi/pi-ai/utils/event-stream";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
@@ -173,5 +178,96 @@ describe("register-builtins lazy streams", () => {
 		}
 		expect(result.stopReason).toBe("aborted");
 		expect(result.errorMessage).toBe("Request was aborted");
+	});
+
+	it("does not race a generic idle watchdog against streamCursor (issue #4593)", async () => {
+		// Cursor's exec-channel round-trip legitimately yields no
+		// AssistantMessageEvent while OMP runs a local tool for the model.
+		// The provider owns h2 heartbeats + trailers, so the lazy wrapper
+		// MUST NOT enforce iterateWithIdleTimeout here — otherwise any local
+		// tool that runs >120s trips a spurious "Provider stream stalled
+		// while waiting for the next event" mid-turn.
+		const cursorModel = buildModel({
+			id: "mock-cursor",
+			name: "Mock Cursor",
+			api: "cursor-agent",
+			provider: "cursor",
+			baseUrl: "https://example.invalid",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 8192,
+			maxTokens: 2048,
+		});
+		const partialMessage: AssistantMessage = {
+			role: "assistant",
+			content: [{ type: "text", text: "ok" }],
+			api: "cursor-agent",
+			provider: "cursor",
+			model: "mock-cursor",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: Date.now(),
+		};
+		const finalMessage: AssistantMessage = { ...partialMessage };
+
+		let providerSignal: AbortSignal | undefined;
+		const releaseStall = Promise.withResolvers<void>();
+		const source = {
+			async *[Symbol.asyncIterator]() {
+				yield { type: "start", partial: partialMessage } as const;
+				// Model back-and-forth silence: mirrors Cursor's exec-channel
+				// round-trip where no upstream event arrives until the local
+				// tool finishes. If the marker regressed and the wrapper
+				// re-armed iterateWithIdleTimeout, the 10ms fake-timer advance
+				// below would fire onIdle and abort providerSignal.
+				await releaseStall.promise;
+			},
+			result: async () => finalMessage,
+		} as unknown as AssistantMessageEventStream;
+
+		setCursorProviderModule({
+			streamCursor: (_model, _context, options) => {
+				providerSignal = options.signal;
+				return source;
+			},
+		});
+
+		vi.useFakeTimers();
+		try {
+			const stream = streamCursor(cursorModel, baseContext, {
+				apiKey: "test",
+				// Aggressive floor: with PROVIDER_HANDLED_STREAM_TIMEOUTS the
+				// wrapper coerces idleTimeoutMs → undefined and never arms a
+				// timer. Without the marker, this would fire at 10ms and
+				// abort providerSignal with a stalled-stream error.
+				streamIdleTimeoutMs: 10,
+			});
+
+			// Drain microtasks so the wrapper attaches its iterator and — if
+			// the marker regressed — would have armed its idle timer.
+			for (let i = 0; i < 20; i++) await Promise.resolve();
+
+			// Advance well past the 10ms floor. Marker present → no timer to
+			// fire; marker absent → onIdle fires, abortLocally aborts.
+			vi.advanceTimersByTime(10_000);
+			for (let i = 0; i < 20; i++) await Promise.resolve();
+
+			expect(providerSignal?.aborted).toBe(false);
+
+			releaseStall.resolve();
+			const result = await stream.result();
+			expect(result.stopReason).toBe("stop");
+			expect(result.errorMessage).toBeUndefined();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

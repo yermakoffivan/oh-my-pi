@@ -157,6 +157,7 @@ let openAICompletionsProviderModulePromise: Promise<LazyProviderModule<"openai-c
 let openAIResponsesProviderModulePromise: Promise<LazyProviderModule<"openai-responses">> | undefined;
 let ollamaProviderModulePromise: Promise<LazyProviderModule<"ollama-chat">> | undefined;
 let cursorProviderModulePromise: Promise<LazyProviderModule<"cursor-agent">> | undefined;
+let cursorProviderModuleOverride: LazyProviderModule<"cursor-agent"> | undefined;
 let devinProviderModulePromise: Promise<LazyProviderModule<"devin-agent">> | undefined;
 let bedrockProviderModuleOverride: LazyProviderModule<"bedrock-converse-stream"> | undefined;
 let bedrockProviderModulePromise: Promise<LazyProviderModule<"bedrock-converse-stream">> | undefined;
@@ -164,6 +165,12 @@ let bedrockProviderModulePromise: Promise<LazyProviderModule<"bedrock-converse-s
 export function setBedrockProviderModule(module: BedrockProviderModule): void {
 	bedrockProviderModuleOverride = {
 		stream: module.streamBedrock,
+	};
+}
+
+export function setCursorProviderModule(module: CursorProviderModule): void {
+	cursorProviderModuleOverride = {
+		stream: module.streamCursor,
 	};
 }
 
@@ -411,6 +418,9 @@ function loadOllamaProviderModule(): Promise<LazyProviderModule<"ollama-chat">> 
 }
 
 function loadCursorProviderModule(): Promise<LazyProviderModule<"cursor-agent">> {
+	if (cursorProviderModuleOverride) {
+		return Promise.resolve(cursorProviderModuleOverride);
+	}
 	cursorProviderModulePromise ||= import("./cursor").then(module => {
 		const provider = module as CursorProviderModule;
 		return { stream: provider.streamCursor };
@@ -468,7 +478,7 @@ export const streamOpenAIResponses = createLazyStream(
 	loadOpenAIResponsesProviderModule,
 	PROVIDER_HANDLED_STREAM_TIMEOUTS,
 );
-export const streamCursor = createLazyStream(loadCursorProviderModule);
+export const streamCursor = createLazyStream(loadCursorProviderModule, PROVIDER_HANDLED_STREAM_TIMEOUTS);
 export const streamDevin = createLazyStream(loadDevinProviderModule);
 export const streamOllama = createLazyStream(loadOllamaProviderModule, OPENAI_IDLE_FLOORED_LAZY_STREAM_LIMITS);
 
