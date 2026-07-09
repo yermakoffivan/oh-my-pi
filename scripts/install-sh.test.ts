@@ -120,6 +120,14 @@ case "$cmd" in
       echo "unexpected global install target: $target" >&2
       exit 99
     fi
+    if [ "\${OMP_INSTALL_TEST_FAIL_INSTALL:-}" = "1" ]; then
+      if [ "\${1:-}" != "--frozen-lockfile" ]; then
+        echo "expected frozen lockfile install before simulated failure, got: $*" >&2
+        exit 99
+      fi
+      echo "simulated dependency install failure" >&2
+      exit 43
+    fi
     root="$(workspace_root "$cwd")" || {
       echo "expected workspace install inside cloned repo, got cwd=$cwd" >&2
       exit 99
@@ -211,5 +219,48 @@ describe("scripts/install.sh", () => {
 		expect(stderr).toBe("");
 		expect(stdout).toContain("✓ Installed omp via bun");
 		expect(fs.existsSync(path.join(bunInstall, "bin", "omp"))).toBe(true);
+	});
+
+	it("keeps the existing source checkout when reinstall dependency installation fails", () => {
+		const dir = makeTempDir();
+		const fixtureRepo = path.join(dir, "fixture-repo");
+		const bunInstall = path.join(dir, "bun-install");
+		const commandLog = path.join(dir, "commands.log");
+		const sourceInstallRoot = path.join(dir, "source-installs");
+		const ref = "feature/source-install";
+		const existingSourceDir = path.join(sourceInstallRoot, "feature_source-install");
+		const sentinel = path.join(existingSourceDir, "existing-sentinel.txt");
+		const replacementMarker = "replacement-checkout-marker.txt";
+		writeFixtureRepo(fixtureRepo);
+		fs.writeFileSync(path.join(fixtureRepo, replacementMarker), "new checkout");
+		fs.mkdirSync(existingSourceDir, { recursive: true });
+		fs.writeFileSync(sentinel, "existing checkout");
+		const { shimDir, stateDir } = writeShims(dir);
+
+		const result = Bun.spawnSync(["sh", installScript, "--source", "--ref", ref], {
+			cwd: dir,
+			env: {
+				...process.env,
+				HOME: path.join(dir, "home"),
+				BUN_INSTALL: bunInstall,
+				PI_SOURCE_INSTALL_DIR: sourceInstallRoot,
+				OMP_INSTALL_TEST_FAIL_INSTALL: "1",
+				OMP_INSTALL_TEST_LOG: commandLog,
+				OMP_INSTALL_TEST_REPO_FIXTURE: fixtureRepo,
+				OMP_INSTALL_TEST_STATE: stateDir,
+				PATH: `${shimDir}${path.delimiter}${process.env.PATH ?? ""}`,
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const stdout = result.stdout.toString();
+		const stderr = result.stderr.toString();
+
+		expect(result.exitCode, `${stdout}\n${stderr}`).toBe(1);
+		expect(stdout).toContain("Failed to install source dependencies");
+		expect(stderr).toContain("simulated dependency install failure");
+		expect(fs.existsSync(sentinel)).toBe(true);
+		expect(fs.readFileSync(sentinel, "utf8")).toBe("existing checkout");
+		expect(fs.existsSync(path.join(existingSourceDir, replacementMarker))).toBe(false);
 	});
 });

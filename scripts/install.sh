@@ -173,23 +173,34 @@ install_via_bun() {
         SAFE_REF="$(printf '%s' "$REF" | tr -c 'A-Za-z0-9._-' '_')"
         SOURCE_DIR="$INSTALL_ROOT/$SAFE_REF"
         mkdir -p "$INSTALL_ROOT"
-        rm -rf "$SOURCE_DIR"
-        mv "$CLONE_DIR" "$SOURCE_DIR"
+        STAGED_SOURCE_DIR="$TMP_DIR/source"
+        mv "$CLONE_DIR" "$STAGED_SOURCE_DIR"
 
-        (cd "$SOURCE_DIR" && bun install --frozen-lockfile) || {
+        (cd "$STAGED_SOURCE_DIR" && bun install --frozen-lockfile) || {
             echo "Failed to install source dependencies"
             exit 1
         }
-        if [ -d "$SOURCE_DIR/packages/natives" ]; then
-            (cd "$SOURCE_DIR/packages/natives" && bun run build) || {
+        if [ -d "$STAGED_SOURCE_DIR/packages/natives" ]; then
+            (cd "$STAGED_SOURCE_DIR/packages/natives" && bun run build) || {
                 echo "Failed to build native addon"
                 exit 1
             }
         fi
-        (cd "$SOURCE_DIR/packages/coding-agent" && bun link) || {
+
+        BACKUP_DIR="$TMP_DIR/previous-source"
+        if [ -d "$SOURCE_DIR" ]; then
+            mv "$SOURCE_DIR" "$BACKUP_DIR"
+        fi
+        mv "$STAGED_SOURCE_DIR" "$SOURCE_DIR"
+        if ! (cd "$SOURCE_DIR/packages/coding-agent" && bun link); then
             echo "Failed to link source install"
+            rm -rf "$SOURCE_DIR"
+            if [ -d "$BACKUP_DIR" ]; then
+                mv "$BACKUP_DIR" "$SOURCE_DIR"
+            fi
             exit 1
-        }
+        fi
+        rm -rf "$BACKUP_DIR"
     else
         bun install -g "$PACKAGE" || {
             echo "Failed to install $PACKAGE"
