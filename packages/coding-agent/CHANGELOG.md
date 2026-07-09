@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- Fixed extension `sendUserMessage()` without `deliverAs` surfacing `AgentBusyError` during active streams; omitted `deliverAs` now queues a steer, and ACP/RPC skill-command prompts opt into steer queueing while streaming ([#4923](https://github.com/can1357/oh-my-pi/issues/4923)).
+
 - Improved handling of unawaited promises in JS eval cells to prevent process crashes
 - Added warning logs for unhandled rejections originating from finished eval cells
 - Improved advisor robustness by blocking exhausted accounts during consecutive turn failures

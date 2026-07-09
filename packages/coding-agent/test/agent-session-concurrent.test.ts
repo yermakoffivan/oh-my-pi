@@ -176,6 +176,52 @@ describe("AgentSession concurrent prompt guard", () => {
 		await firstPrompt.catch(() => {});
 	});
 
+	it("sendUserMessage without deliverAs queues a steer while streaming", async () => {
+		await createSession();
+
+		const firstPrompt = session.prompt("First message");
+		await waitFor(() => session.isStreaming);
+
+		try {
+			await session.sendUserMessage("Steer via extension");
+			expect(session.getQueuedMessages()).toEqual({
+				steering: ["Steer via extension"],
+				followUp: [],
+			});
+		} finally {
+			session.agent.clearAllQueues();
+			await session.abort();
+			await firstPrompt.catch(() => {});
+		}
+	});
+
+	it("sendUserMessage without deliverAs starts a normal prompt when idle", async () => {
+		await createSession();
+
+		let rejected: unknown;
+		let settled = false;
+		const turn = session
+			.sendUserMessage("Idle extension message")
+			.catch(error => {
+				rejected = error;
+			})
+			.finally(() => {
+				settled = true;
+			});
+
+		try {
+			await waitFor(() => session.isStreaming || settled);
+			if (rejected) throw rejected;
+
+			expect(session.isStreaming).toBe(true);
+			expect(settled).toBe(false);
+			expect(session.getQueuedMessages()).toEqual({ steering: [], followUp: [] });
+		} finally {
+			await session.abort();
+			await turn;
+		}
+	});
+
 	it("delivers hidden nextTurn stop reactions through the next LLM call without exposing them in the visible queue", async () => {
 		const model = getBundledModel("anthropic", "claude-sonnet-4-5")!;
 		let firstStream: AssistantMessageEventStream | undefined;

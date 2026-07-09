@@ -16,6 +16,7 @@ describe("tryRunRpcSkillCommand", () => {
 		);
 
 		let message: Pick<CustomMessage, "attribution" | "content" | "customType" | "details" | "display"> | undefined;
+		let options: { streamingBehavior?: "steer" | "followUp" } | undefined;
 
 		const handled = await tryRunRpcSkillCommand(
 			{
@@ -23,8 +24,9 @@ describe("tryRunRpcSkillCommand", () => {
 				skills: [
 					{ name: "reviewer", description: "Review code", filePath: skillPath, baseDir: dir, source: "project" },
 				],
-				async promptCustomMessage(nextMessage: typeof message) {
+				async promptCustomMessage(nextMessage: typeof message, nextOptions?: typeof options) {
 					message = nextMessage;
+					options = nextOptions;
 				},
 			},
 			"/skill:reviewer focus on risks",
@@ -39,6 +41,7 @@ describe("tryRunRpcSkillCommand", () => {
 		expect(message?.content).toContain("User: focus on risks");
 		expect(message?.display).toBe(true);
 		expect(message?.attribution).toBe("user");
+		expect(options).toEqual({ streamingBehavior: "steer" });
 
 		await removeWithRetries(dir);
 	});
