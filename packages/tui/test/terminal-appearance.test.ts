@@ -144,6 +144,21 @@ describe("ProcessTerminal OSC 11 appearance detection", () => {
 		terminal.stop();
 	});
 
+	it("replays already detected OSC 11 appearance to late subscribers", () => {
+		const { terminal } = setupTerminal();
+
+		process.stdin.emit("data", "\x1b]11;rgb:ffff/ffff/ffff\x07");
+		process.stdin.emit("data", "\x1b[?1;2c");
+
+		const appearances: string[] = [];
+		terminal.onAppearanceChange(a => appearances.push(a));
+
+		expect(terminal.appearance).toBe("light");
+		expect(appearances).toEqual(["light"]);
+
+		terminal.stop();
+	});
+
 	it("2-digit hex OSC 11 response is correctly normalized", () => {
 		const { terminal } = setupTerminal();
 

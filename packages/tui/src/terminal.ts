@@ -516,6 +516,13 @@ export class ProcessTerminal implements Terminal {
 
 	onAppearanceChange(callback: (appearance: TerminalAppearance) => void): void {
 		this.#appearanceCallbacks.push(callback);
+		if (this.#appearance) {
+			try {
+				callback(this.#appearance);
+			} catch {
+				/* ignore callback errors */
+			}
+		}
 	}
 
 	onPrivateModeReport(callback: (mode: number, supported: boolean) => void): void {

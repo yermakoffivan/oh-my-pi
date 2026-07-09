@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed late terminal appearance subscribers missing the already-detected OSC 11 light/dark result, so restored sessions can apply the current terminal theme immediately ([#4731](https://github.com/can1357/oh-my-pi/issues/4731)).
+
 ## [16.3.10] - 2026-07-06
 
 ### Fixed
