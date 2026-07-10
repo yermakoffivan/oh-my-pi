@@ -1118,6 +1118,7 @@ function mergeCuratedIntoModel(
 		reasoningEffortMap: { ...XAI_REASONING_EFFORT_MAP, ...(base.compat?.reasoningEffortMap ?? {}) },
 		includeEncryptedReasoning: base.compat?.includeEncryptedReasoning ?? false,
 		filterReasoningHistory: base.compat?.filterReasoningHistory ?? true,
+		supportsImageDetailOriginal: base.compat?.supportsImageDetailOriginal ?? false,
 		omitReasoningEffort: base.compat?.omitReasoningEffort ?? !isGrokReasoningEffortCapable(base.id),
 		...(effort === undefined ? {} : { supportsReasoningEffort: effort }),
 	};
