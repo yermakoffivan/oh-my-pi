@@ -115,12 +115,21 @@ export class SelectorController {
 	 * @param create Factory that receives a `done` callback and returns the component and focus target
 	 */
 	showSelector(create: (done: () => void) => { component: Component; focus: Component }): void {
+		let activeComponent: Component | undefined;
 		const done = () => {
+			const component = activeComponent;
+			activeComponent = undefined;
+			component?.dispose?.();
 			this.ctx.editorContainer.clear();
 			this.ctx.editorContainer.addChild(this.ctx.editor);
 			this.ctx.ui.setFocus(this.ctx.editor);
 		};
 		const { component, focus } = create(done);
+		activeComponent = component;
+		const previous = this.ctx.editorContainer.children[0];
+		if (previous !== this.ctx.editor) {
+			previous?.dispose?.();
+		}
 		this.ctx.editorContainer.clear();
 		this.ctx.editorContainer.addChild(component);
 		this.ctx.ui.setFocus(focus);

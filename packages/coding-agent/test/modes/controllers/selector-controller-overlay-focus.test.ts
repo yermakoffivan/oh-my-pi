@@ -83,3 +83,47 @@ describe("SelectorController.focusActiveEditorArea", () => {
 		expect(setFocus).toHaveBeenCalledWith(editor);
 	});
 });
+
+describe("SelectorController.showSelector disposal", () => {
+	it("disposes the selector exactly once when the close callback restores the editor", () => {
+		const editor = { id: "editor", dispose: vi.fn(), render: () => [] };
+		const selector = { id: "selector", dispose: vi.fn(), render: () => [] };
+		const slot = createEditorSlot(editor);
+		const { ctx, setFocus } = createCtx(slot, editor);
+		let closeSelector: (() => void) | undefined;
+
+		new SelectorController(ctx).showSelector(done => {
+			closeSelector = done;
+			return { component: selector, focus: selector };
+		});
+
+		expect(slot.children).toEqual([selector]);
+		expect(setFocus).toHaveBeenLastCalledWith(selector);
+
+		closeSelector?.();
+		closeSelector?.();
+
+		expect(selector.dispose).toHaveBeenCalledTimes(1);
+		expect(editor.dispose).not.toHaveBeenCalled();
+		expect(slot.children).toEqual([editor]);
+		expect(setFocus).toHaveBeenLastCalledWith(editor);
+	});
+
+	it("disposes a non-editor component occupying the editor slot before showing a selector", () => {
+		const editor = { id: "editor", dispose: vi.fn(), render: () => [] };
+		const stalePrompt = { id: "stale-prompt", dispose: vi.fn(), render: () => [] };
+		const selector = { id: "selector", dispose: vi.fn(), render: () => [] };
+		const slot = createEditorSlot(stalePrompt);
+		const { ctx, setFocus } = createCtx(slot, editor);
+
+		new SelectorController(ctx).showSelector(() => {
+			return { component: selector, focus: selector };
+		});
+
+		expect(stalePrompt.dispose).toHaveBeenCalledTimes(1);
+		expect(editor.dispose).not.toHaveBeenCalled();
+		expect(selector.dispose).not.toHaveBeenCalled();
+		expect(slot.children).toEqual([selector]);
+		expect(setFocus).toHaveBeenLastCalledWith(selector);
+	});
+});
