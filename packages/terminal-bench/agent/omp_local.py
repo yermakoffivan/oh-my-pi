@@ -180,7 +180,7 @@ class OmpLocal(BaseInstalledAgent):
         self._thinking = _env("OMP_TB_THINKING")
         self._auto_approve = _truthy(_env("OMP_TB_AUTO_APPROVE", "1"))
         self._extra_args = _env("OMP_TB_EXTRA_ARGS")
-        self._bun_version = _env("OMP_TB_BUN_VERSION", "1.3.14")
+        self._bun_version = _env("OMP_TB_BUN_VERSION", "1.3.15")
         self._gateway_on = _env("OMP_TB_GATEWAY", "1") != "0"
         # Optional second model reviewing the primary (separate spend, summed in).
         self._advisor_model = _env("OMP_TB_ADVISOR_MODEL")
