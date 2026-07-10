@@ -16,6 +16,32 @@ function makeSessionWithLastMessage(lastMessage: unknown) {
 	};
 }
 
+function makeMutableContextUsageSession(initialTokens: number) {
+	let tokens = initialTokens;
+	const session = {
+		messages: [
+			{
+				role: "assistant",
+				timestamp: 1,
+				usage: { totalTokens: 10 },
+				content: [],
+			},
+		],
+		model: { contextWindow: 128000 },
+		contextUsageRevision: 0,
+		systemPrompt: [],
+		agent: { state: { tools: [] } },
+		skills: [],
+		getContextUsage: () => ({ tokens, contextWindow: 128000 }),
+	};
+	return {
+		session,
+		setTokens(nextTokens: number): void {
+			tokens = nextTokens;
+		},
+	};
+}
+
 beforeAll(async () => {
 	await Settings.init({ inMemory: true });
 	const loaded = await getThemeByName("dark");
@@ -40,5 +66,17 @@ describe("StatusLineComponent", () => {
 		);
 
 		expect(statusLine.getCachedContextBreakdown()).toEqual({ usedTokens: 42, contextWindow: 128000 });
+	});
+
+	it("recomputes context tokens after explicit invalidation", () => {
+		const { session, setTokens } = makeMutableContextUsageSession(1000);
+		const statusLine = new StatusLineComponent(session as unknown as AgentSession);
+
+		expect(statusLine.getCachedContextBreakdown()).toEqual({ usedTokens: 1000, contextWindow: 128000 });
+
+		setTokens(250);
+		statusLine.invalidate();
+
+		expect(statusLine.getCachedContextBreakdown()).toEqual({ usedTokens: 250, contextWindow: 128000 });
 	});
 });

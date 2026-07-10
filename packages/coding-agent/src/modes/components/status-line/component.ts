@@ -569,6 +569,7 @@ export class StatusLineComponent implements Component {
 	}
 
 	invalidate(): void {
+		this.#contextUsageCache = undefined;
 		this.#invalidateGitCaches();
 	}
 	#invalidateSessionCaches(): void {
