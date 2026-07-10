@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Raised the shared runtime guard minimum to Bun 1.3.15 so OMP source/global installs reject the JSC GC crash-prone 1.3.14 runtime. ([#5071](https://github.com/can1357/oh-my-pi/issues/5071))
+
 ## [16.3.12] - 2026-07-08
 
 ### Added
