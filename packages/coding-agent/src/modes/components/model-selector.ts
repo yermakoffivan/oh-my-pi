@@ -116,6 +116,7 @@ const ALL_TAB = "ALL";
 const STATIC_PROVIDER_TABS: ProviderTabState[] = [{ id: ALL_TAB, label: ALL_TAB }];
 
 const MODEL_TAB_REFRESH_DEBOUNCE_MS = 120;
+const HIDDEN_OPTIONAL_PROVIDER_REFRESH_RETRY_MS = 2_000;
 
 function formatProviderTabLabel(providerId: string): string {
 	return providerId.replace(/[-_]+/g, " ").toUpperCase();
@@ -167,7 +168,8 @@ export class ModelSelectorComponent extends Container {
 	#refreshingProviders: Set<string> = new Set();
 	#scheduledProviderRefreshes: Map<string, Timer> = new Map();
 	#refreshingHiddenOptionalProviders: Set<string> = new Set();
-	#hiddenOptionalProviderRefreshAttempts: Set<string> = new Set();
+	#hiddenOptionalProviderRetryTimers: Map<string, Timer> = new Map();
+	#disposed = false;
 	#refreshSpinnerFrame: number = 0;
 	#refreshSpinnerInterval?: Timer;
 
@@ -291,6 +293,23 @@ export class ModelSelectorComponent extends Container {
 				})
 				.finally(() => this.#tui.requestRender());
 		}
+	}
+
+	override dispose(): void {
+		this.#disposed = true;
+		for (const timer of this.#scheduledProviderRefreshes.values()) {
+			clearTimeout(timer);
+		}
+		this.#scheduledProviderRefreshes.clear();
+		for (const timer of this.#hiddenOptionalProviderRetryTimers.values()) {
+			clearTimeout(timer);
+		}
+		this.#hiddenOptionalProviderRetryTimers.clear();
+		if (this.#refreshSpinnerInterval) {
+			clearInterval(this.#refreshSpinnerInterval);
+			this.#refreshSpinnerInterval = undefined;
+		}
+		super.dispose();
 	}
 
 	#buildMenuRoleActions(): void {
@@ -592,16 +611,47 @@ export class ModelSelectorComponent extends Container {
 				continue;
 			}
 			if (
-				this.#hiddenOptionalProviderRefreshAttempts.has(provider) ||
+				this.#hiddenOptionalProviderRetryTimers.has(provider) ||
 				this.#refreshingHiddenOptionalProviders.has(provider) ||
 				this.#refreshingProviders.has(provider)
 			) {
 				continue;
 			}
-			this.#hiddenOptionalProviderRefreshAttempts.add(provider);
 			this.#refreshingHiddenOptionalProviders.add(provider);
 			void this.#refreshHiddenOptionalProviderInBackground(provider);
 		}
+	}
+
+	#scheduleHiddenOptionalProviderRetry(providerId: string): void {
+		if (this.#disposed || this.#scopedModels.length > 0) {
+			return;
+		}
+		if (
+			this.#hiddenOptionalProviderRetryTimers.has(providerId) ||
+			this.#refreshingHiddenOptionalProviders.has(providerId)
+		) {
+			return;
+		}
+		if (this.#providers.some(provider => provider.providerId === providerId)) {
+			return;
+		}
+		if (!this.#modelRegistry.getProviderDiscoveryState(providerId)?.optional) {
+			return;
+		}
+		const timer = setTimeout(() => {
+			this.#hiddenOptionalProviderRetryTimers.delete(providerId);
+			if (
+				this.#disposed ||
+				this.#refreshingProviders.has(providerId) ||
+				this.#providers.some(provider => provider.providerId === providerId) ||
+				!this.#modelRegistry.getProviderDiscoveryState(providerId)?.optional
+			) {
+				return;
+			}
+			this.#refreshingHiddenOptionalProviders.add(providerId);
+			void this.#refreshHiddenOptionalProviderInBackground(providerId);
+		}, HIDDEN_OPTIONAL_PROVIDER_REFRESH_RETRY_MS);
+		this.#hiddenOptionalProviderRetryTimers.set(providerId, timer);
 	}
 
 	async #refreshHiddenOptionalProviderInBackground(providerId: string): Promise<void> {
@@ -612,7 +662,10 @@ export class ModelSelectorComponent extends Container {
 			// Hidden optional providers are speculative local probes; failures must not replace visible results.
 		} finally {
 			this.#refreshingHiddenOptionalProviders.delete(providerId);
-			this.#tui.requestRender();
+			if (!this.#disposed) {
+				this.#scheduleHiddenOptionalProviderRetry(providerId);
+				this.#tui.requestRender();
+			}
 		}
 	}
 

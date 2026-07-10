@@ -191,52 +191,70 @@ describe("ModelSelector provider tabs hide optional empty local discovery provid
 		}
 	});
 
-	test("omits optional implicit local providers when discovery returned no models", async () => {
-		installTestTheme();
-		const providers = ["ollama", "llama.cpp", "lm-studio"];
-		const discoveryStates: DiscoveryStatesByProvider = {
-			ollama: {
-				provider: "ollama",
-				status: "empty",
-				optional: true,
-				stale: false,
-				models: [],
-			},
-			"llama.cpp": {
-				provider: "llama.cpp",
-				status: "empty",
-				optional: true,
-				stale: false,
-				models: [],
-			},
-			"lm-studio": {
-				provider: "lm-studio",
-				status: "empty",
-				optional: true,
-				stale: false,
-				models: [],
-			},
-		};
+	test("retries hidden optional local providers while the selector remains open", async () => {
+		vi.useFakeTimers();
+		let selector: ModelSelectorComponent | undefined;
+		try {
+			installTestTheme();
+			const providers = ["ollama", "llama.cpp", "lm-studio"];
+			const discoveryStates: DiscoveryStatesByProvider = {
+				ollama: {
+					provider: "ollama",
+					status: "empty",
+					optional: true,
+					stale: false,
+					models: [],
+				},
+				"llama.cpp": {
+					provider: "llama.cpp",
+					status: "empty",
+					optional: true,
+					stale: false,
+					models: [],
+				},
+				"lm-studio": {
+					provider: "lm-studio",
+					status: "empty",
+					optional: true,
+					stale: false,
+					models: [],
+				},
+			};
 
-		const { selector, backgroundRefresh, refreshProvider } = createSelector([], () => {}, {
-			discoverableProviders: providers,
-			discoveryStates,
-		});
-		await backgroundRefresh;
-		installTestTheme();
+			const harness = createSelector([], () => {}, {
+				discoverableProviders: providers,
+				discoveryStates,
+			});
+			selector = harness.selector;
+			await harness.backgroundRefresh;
+			installTestTheme();
 
-		expect(refreshProvider).toHaveBeenCalledTimes(3);
-		expect(refreshProvider.mock.calls).toEqual([
-			["ollama", "online"],
-			["llama.cpp", "online"],
-			["lm-studio", "online"],
-		]);
+			expect(harness.refreshProvider).toHaveBeenCalledTimes(3);
+			expect(harness.refreshProvider.mock.calls).toEqual([
+				["ollama", "online"],
+				["llama.cpp", "online"],
+				["lm-studio", "online"],
+			]);
 
-		const rendered = normalizeRenderedText(selector.render(220).join("\n"));
-		expect(rendered).toContain("ALL");
-		expect(rendered).not.toContain("OLLAMA");
-		expect(rendered).not.toContain("LLAMA.CPP");
-		expect(rendered).not.toContain("LM STUDIO");
+			harness.refreshProvider.mockClear();
+			vi.advanceTimersByTime(2_000);
+			await Promise.resolve();
+
+			expect(harness.refreshProvider.mock.calls).toEqual([
+				["ollama", "online"],
+				["llama.cpp", "online"],
+				["lm-studio", "online"],
+			]);
+
+			const rendered = normalizeRenderedText(selector.render(220).join("\n"));
+			expect(rendered).toContain("ALL");
+			expect(rendered).not.toContain("OLLAMA");
+			expect(rendered).not.toContain("LLAMA.CPP");
+			expect(rendered).not.toContain("LM STUDIO");
+		} finally {
+			selector?.dispose();
+			vi.useRealTimers();
+		}
 	});
 
 	test("keeps non-optional discoverable providers visible even without models", async () => {
