@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed mid-prompt `/skill:` autocomplete Tab acceptance when typed characters outrun the debounced popup refresh ([#4809](https://github.com/can1357/oh-my-pi/issues/4809)).
+
 ## [16.3.10] - 2026-07-06
 
 ### Fixed

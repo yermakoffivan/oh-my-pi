@@ -94,6 +94,28 @@ describe("Editor slash autocomplete acceptance", () => {
 		expect(editor.getText()).toBe("/skills:fix-bug ");
 	});
 
+	it("replaces mid-prompt skill characters typed after the rendered prefix with Tab", async () => {
+		const editor = new Editor(defaultEditorTheme);
+		editor.setAutocompleteProvider(
+			new CombinedAutocompleteProvider(
+				[{ name: "skill:semantic-compression", description: "Compress context" }],
+				"/tmp",
+			),
+		);
+
+		editor.setText("how do I ");
+		const opened = onceAutocompleteUpdate(editor);
+		editor.handleInput("/");
+		await opened;
+		expect(editor.isShowingAutocomplete()).toBe(true);
+
+		editor.handleInput("s");
+		editor.handleInput("k");
+		editor.handleInput("\t");
+
+		expect(editor.getText()).toBe("how do I /skill:semantic-compression ");
+	});
+
 	it("accepts an absolute path completion with Tab when the line has leading whitespace", async () => {
 		const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "editor-absolute-tab-"));
 		try {
