@@ -623,6 +623,76 @@ function createCodexCompactionContext(options: {
 	};
 }
 
+function stableAssistantIdentityValue(value: unknown): string {
+	if (value === null || typeof value !== "object") {
+		return JSON.stringify(value) ?? "undefined";
+	}
+	if (Array.isArray(value)) {
+		const items: string[] = [];
+		for (const item of value) {
+			items.push(stableAssistantIdentityValue(item));
+		}
+		return `[${items.join(",")}]`;
+	}
+	const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+	const fields: string[] = [];
+	for (const [key, item] of entries) {
+		fields.push(`${JSON.stringify(key)}:${stableAssistantIdentityValue(item)}`);
+	}
+	return `{${fields.join(",")}}`;
+}
+
+function assistantContentBlocksMatch(
+	left: AssistantMessage["content"][number],
+	right: AssistantMessage["content"][number],
+): boolean {
+	if (left.type !== right.type) return false;
+	if (left.type === "text" && right.type === "text") {
+		return left.text === right.text && left.textSignature === right.textSignature;
+	}
+	if (left.type === "thinking" && right.type === "thinking") {
+		return (
+			left.thinking === right.thinking &&
+			left.thinkingSignature === right.thinkingSignature &&
+			left.itemId === right.itemId
+		);
+	}
+	if (left.type === "toolCall" && right.type === "toolCall") {
+		return (
+			left.id === right.id &&
+			left.name === right.name &&
+			left.customWireName === right.customWireName &&
+			stableAssistantIdentityValue(left.arguments) === stableAssistantIdentityValue(right.arguments)
+		);
+	}
+	return stableAssistantIdentityValue(left) === stableAssistantIdentityValue(right);
+}
+
+/**
+ * Reports whether two assistant records identify the same persisted turn for cleanup.
+ *
+ * Empty-stop recovery can receive adjacent Codex commentary/final-answer records
+ * with identical coarse metadata, so content identity is part of the match.
+ */
+function assistantMessagesReferToSameTurn(left: AssistantMessage, right: AssistantMessage): boolean {
+	if (left === right) return true;
+	if (
+		left.timestamp !== right.timestamp ||
+		left.api !== right.api ||
+		left.provider !== right.provider ||
+		left.model !== right.model ||
+		left.stopReason !== right.stopReason ||
+		left.responseId !== right.responseId ||
+		left.content.length !== right.content.length
+	) {
+		return false;
+	}
+	for (let i = 0; i < left.content.length; i++) {
+		if (!assistantContentBlocksMatch(left.content[i]!, right.content[i]!)) return false;
+	}
+	return true;
+}
+
 /**
  * Per-turn prune cache window. A tool result whose all-message suffix exceeds
  * this is in the warm, already-sent prompt-cache prefix: re-writing it costs the
@@ -10908,7 +10978,7 @@ export class AgentSession {
 		for (const entry of this.sessionManager.getBranch().slice().reverse()) {
 			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
 			if (sessionMessagePersistenceKey(entry.message) !== persistenceKey) continue;
-			if (!sameMessageContent(entry.message, message) && !this.#isSameAssistantMessage(entry.message, message)) {
+			if (!sameMessageContent(entry.message, message) && !assistantMessagesReferToSameTurn(entry.message, message)) {
 				continue;
 			}
 			branchEntry = entry;
@@ -11127,7 +11197,7 @@ export class AgentSession {
 		const messages = this.agent.state.messages;
 		const lastMessage = messages[messages.length - 1];
 		const lastAssistant: AssistantMessage | undefined = lastMessage?.role === "assistant" ? lastMessage : undefined;
-		if (lastAssistant !== undefined && this.#isSameAssistantMessage(lastAssistant, assistantMessage)) {
+		if (lastAssistant !== undefined && assistantMessagesReferToSameTurn(lastAssistant, assistantMessage)) {
 			this.agent.replaceMessages(messages.slice(0, -1));
 			return;
 		}
@@ -11198,7 +11268,7 @@ export class AgentSession {
 		const lastMessage = this.agent.state.messages.at(-1);
 		if (
 			lastMessage?.role === "assistant" &&
-			this.#isSameAssistantMessage(lastMessage as AssistantMessage, assistantMessage)
+			assistantMessagesReferToSameTurn(lastMessage as AssistantMessage, assistantMessage)
 		) {
 			return;
 		}
@@ -11223,7 +11293,7 @@ export class AgentSession {
 				entry =>
 					entry.type === "message" &&
 					entry.message.role === "assistant" &&
-					this.#isSameAssistantMessage(entry.message as AssistantMessage, assistantMessage),
+					assistantMessagesReferToSameTurn(entry.message as AssistantMessage, assistantMessage),
 			);
 		if (!branchEntry) {
 			return;
@@ -11233,16 +11303,6 @@ export class AgentSession {
 		} else {
 			this.sessionManager.branch(branchEntry.parentId);
 		}
-	}
-
-	#isSameAssistantMessage(left: AssistantMessage, right: AssistantMessage): boolean {
-		return (
-			left === right ||
-			(left.timestamp === right.timestamp &&
-				left.provider === right.provider &&
-				left.model === right.model &&
-				left.stopReason === right.stopReason)
-		);
 	}
 
 	#enforceRewindBeforeYield(): boolean {

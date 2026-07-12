@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Fixed Codex empty final-answer cleanup discarding an earlier commentary assistant turn with the same coarse response metadata, which could make already-rendered prose disappear or duplicate in native scrollback. ([#5287](https://github.com/can1357/oh-my-pi/issues/5287))
+
 - Improved search reliability for Perplexity provider by forcing retrieval for all queries
 - Fixed JS eval cells losing top-level `function` and `var` declarations across cells when the defining cell contained top-level `await` — the async wrapper scoped them to the cell's IIFE instead of publishing them to the worker global
 

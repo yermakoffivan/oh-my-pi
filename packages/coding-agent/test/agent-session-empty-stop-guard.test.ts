@@ -70,12 +70,14 @@ function thinkingOnlyStop(): MockResponse {
 async function createHarness(
 	responses: MockResponse[],
 	settingsOverrides: SettingsOverrides = {},
+	mockIdentity: { provider?: string; id?: string } = {},
 ): Promise<Harness & { mock: MockModel }> {
 	const tempDir = TempDir.createSync("@pi-empty-stop-guard-");
 	const authStorage = await AuthStorage.create(path.join(tempDir.path(), "auth.db"));
 	authStorage.setRuntimeApiKey("mock", "test-key");
 
-	const mock = createMockModel({ responses });
+	const mock = createMockModel({ ...mockIdentity, responses });
+	authStorage.setRuntimeApiKey(mock.provider, "test-key");
 	const modelRegistry = new ModelRegistry(authStorage, path.join(tempDir.path(), "models.yml"));
 	const settings = Settings.isolated({
 		"compaction.enabled": false,
@@ -397,6 +399,41 @@ describe("AgentSession empty stop guard", () => {
 		});
 		expect(session.isRetrying).toBe(false);
 		expect(reminderMessages(session.agent.state.messages)).toHaveLength(1);
+	});
+
+	it("discards only the empty Codex stop when a prior assistant turn shares coarse metadata", async () => {
+		const sharedTimestamp = 1_725_287_000_000;
+		vi.spyOn(Date, "now").mockReturnValue(sharedTimestamp);
+		const commentary = "Codex commentary turn before the empty final answer.";
+		const recovered = "Recovered after empty final-answer retry.";
+		const { session, mock } = await createHarness(
+			[{ content: [commentary], stopReason: "stop" }, emptyStop(), { content: [recovered], stopReason: "stop" }],
+			{},
+			{ provider: "openai-codex", id: "gpt-5.5-codex" },
+		);
+
+		await session.prompt("produce commentary first");
+		await session.waitForIdle();
+		await session.prompt("retry after empty final answer");
+		await session.waitForIdle();
+
+		expect(mock.calls).toHaveLength(3);
+		const assistantTexts = (messages: AgentMessage[]): string[] => {
+			const texts = messages
+				.filter((message): message is Extract<AgentMessage, { role: "assistant" }> => message.role === "assistant")
+				.flatMap(message => message.content.flatMap(content => (content.type === "text" ? [content.text] : [])));
+			return texts;
+		};
+
+		expect(assistantTexts(session.agent.state.messages)).toEqual([commentary, recovered]);
+		expect(emptyAssistantStops(session.agent.state.messages)).toHaveLength(0);
+
+		const activeBranchMessages = session.sessionManager
+			.getBranch()
+			.filter(entry => entry.type === "message")
+			.map(entry => entry.message as AgentMessage);
+		expect(assistantTexts(activeBranchMessages)).toEqual([commentary, recovered]);
+		expect(emptyAssistantStops(activeBranchMessages)).toHaveLength(0);
 	});
 
 	it("does not retry normal stop or tool-use turns", async () => {
