@@ -14,6 +14,11 @@ function makeSession(): ToolSession {
 }
 
 describe("browser tab evaluation", () => {
+	// Cold Chromium launch + navigate + evaluate IPC round-trip observed at
+	// ~5000-5005ms on the shared CI runner (default bun:test 5000ms budget
+	// exceeded by low tens of ms every run in this chunk position), vs
+	// ~2900ms locally. 3x local runtime gives headroom without masking a
+	// real hang.
 	it("runs tab.evaluate in the page's main JavaScript world", async () => {
 		const tool = new BrowserTool(makeSession());
 		const name = `main-world-${process.pid}`;
@@ -34,5 +39,5 @@ describe("browser tab evaluation", () => {
 		} finally {
 			await tool.execute("close", { action: "close", name, kill: true });
 		}
-	});
+	}, 15000);
 });
