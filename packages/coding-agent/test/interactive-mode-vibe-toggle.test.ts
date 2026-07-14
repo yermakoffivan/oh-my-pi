@@ -202,6 +202,33 @@ describe("InteractiveMode vibe mode toggle", () => {
 		expect(vibeModeEntryCount(session.sessionManager)).toBe(1);
 	});
 
+	it("does not clobber the target's active tools with the source snapshot when switching out of vibe", async () => {
+		await mode.init({ suppressWelcomeIntro: true });
+		// Pre-vibe snapshot on the source session is empty; entering vibe activates
+		// read + the vibe tools.
+		await mode.handleVibeModeCommand();
+		expect(mode.vibeModeEnabled).toBe(true);
+		expect(session.getActiveToolNames()).toContain("read");
+
+		// Target is a distinct, non-vibe session.
+		const targetManager = SessionManager.create(tempDir.path(), tempDir.path());
+		targetManager.appendModeChange("none");
+		await targetManager.ensureOnDisk();
+		const targetFile = targetManager.getSessionFile();
+		if (!targetFile) throw new Error("Expected target session file");
+		await targetManager.close();
+
+		expect(await session.switchSession(targetFile)).toBe(true);
+
+		expect(mode.vibeModeEnabled).toBe(false);
+		// The transient vibe tools are gone, but the genuinely-active `read` tool
+		// must survive — the source's empty pre-vibe snapshot must not wipe it.
+		expect(session.getActiveToolNames()).toEqual(["read"]);
+		for (const name of VIBE_TOOL_NAMES) {
+			expect(session.getActiveToolNames()).not.toContain(name);
+		}
+	});
+
 	it("rejects new, drop, fork, and move transitions at the AgentSession boundary while vibe is active", async () => {
 		await mode.init({ suppressWelcomeIntro: true });
 		await mode.handleVibeModeCommand();

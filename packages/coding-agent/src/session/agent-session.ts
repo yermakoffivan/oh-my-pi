@@ -6191,13 +6191,31 @@ export class AgentSession {
 
 	/** Removes tools installed by {@link activateVibeTools} and activates `nextToolNames`. */
 	async deactivateVibeTools(nextToolNames: string[]): Promise<void> {
+		this.#uninstallVibeTools();
+		await this.#applyActiveToolsByName(nextToolNames);
+	}
+
+	/**
+	 * Removes the ephemeral vibe tools while keeping whatever active tool set the
+	 * session currently holds (minus those vibe tools). Unlike
+	 * {@link deactivateVibeTools}, this never restores a caller-held pre-vibe
+	 * snapshot — use it on the session-switch path, where that snapshot belongs to
+	 * the source session and would clobber the freshly loaded target's tools.
+	 */
+	async removeVibeToolsPreservingActive(): Promise<void> {
+		const removed = new Set(this.#installedVibeToolNames);
+		this.#uninstallVibeTools();
+		const nextActive = this.getActiveToolNames().filter(name => !removed.has(name));
+		await this.#applyActiveToolsByName(nextActive);
+	}
+
+	#uninstallVibeTools(): void {
 		for (const name of this.#installedVibeToolNames) {
 			this.#toolRegistry.delete(name);
 			this.#builtInToolNames.delete(name);
 			this.#selectedDiscoveredToolNames.delete(name);
 		}
 		this.#installedVibeToolNames.clear();
-		await this.#applyActiveToolsByName(nextToolNames);
 	}
 
 	#getEditModeSession() {

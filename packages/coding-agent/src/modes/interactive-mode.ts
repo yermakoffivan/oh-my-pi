@@ -2150,7 +2150,12 @@ export class InteractiveMode implements InteractiveModeContext {
 
 		if (this.vibeModeEnabled && !options?.preserveVibe) {
 			const ownerScope = this.#vibeModeOwnerScope;
-			await this.session.deactivateVibeTools(this.#vibeModePreviousTools ?? []);
+			// This runs only from #reconcileModeFromSession, i.e. after switchSession
+			// already loaded and restored the target session's active tools. The
+			// #vibeModePreviousTools snapshot belongs to the SOURCE session, so
+			// applying it here would clobber the target's tools — strip only the
+			// transient vibe tools and keep the target's active set intact.
+			await this.session.removeVibeToolsPreservingActive();
 			this.session.setVibeModeState(undefined);
 			this.vibeModeEnabled = false;
 			this.#vibeModePreviousTools = undefined;
