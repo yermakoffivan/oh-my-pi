@@ -508,6 +508,12 @@ function buildPlaceholder(hint: PlaceholderCaseHint | undefined, base: string, f
 /** Regex to match #HASH#, #HASH:U#, and #FRIENDLY_HASH(:hint)# placeholders. */
 const PLACEHOLDER_RE = /#(?:[A-Z0-9]+_)?[A-Z0-9]{4,}(?::[ULCM])?#/g;
 
+function resumePlaceholderScanAfterRejectedCandidate(match: RegExpExecArray): void {
+	// RegExp#exec does not find overlapping matches. Restart at the rejected
+	// candidate's closing `#`, which can open an immediately adjacent placeholder.
+	PLACEHOLDER_RE.lastIndex = match.index + match[0].length - 1;
+}
+
 function placeholderWithoutFriendlyName(placeholder: string): string | undefined {
 	const match = /^#[A-Z0-9]+_([A-Z0-9]{4,}(?::[ULCM])?)#$/.exec(placeholder);
 	return match ? `#${match[1]}#` : undefined;
@@ -1515,7 +1521,10 @@ export class SecretObfuscator {
 		for (;;) {
 			const match = PLACEHOLDER_RE.exec(text);
 			if (match === null) break;
-			if (!(this.#isGeneratedPlaceholder(match[0]) && match[0] !== search)) continue;
+			if (!(this.#isGeneratedPlaceholder(match[0]) && match[0] !== search)) {
+				resumePlaceholderScanAfterRejectedCandidate(match);
+				continue;
+			}
 			emitChunk(pending, match.index);
 			outText += match[0];
 			outOrigin += origin.slice(match.index, match.index + match[0].length);
@@ -1554,7 +1563,10 @@ export class SecretObfuscator {
 		for (;;) {
 			const match = PLACEHOLDER_RE.exec(text);
 			if (match === null) break;
-			if (!this.#isGeneratedPlaceholder(match[0])) continue;
+			if (!this.#isGeneratedPlaceholder(match[0])) {
+				resumePlaceholderScanAfterRejectedCandidate(match);
+				continue;
+			}
 			emitChunk(pending, match.index);
 			outText += match[0];
 			outOrigin += origin.slice(match.index, match.index + match[0].length);
@@ -1572,6 +1584,8 @@ export class SecretObfuscator {
 			if (match === null) break;
 			if (this.#isGeneratedPlaceholder(match[0])) {
 				ranges.push({ start: match.index, end: match.index + match[0].length });
+			} else {
+				resumePlaceholderScanAfterRejectedCandidate(match);
 			}
 		}
 		return ranges;
@@ -2165,7 +2179,10 @@ function transformOutsidePlaceholdersTracked(
 	for (;;) {
 		const match = PLACEHOLDER_RE.exec(text);
 		if (match === null) break;
-		if (!shouldSkipPlaceholder(match[0])) continue;
+		if (!shouldSkipPlaceholder(match[0])) {
+			resumePlaceholderScanAfterRejectedCandidate(match);
+			continue;
+		}
 		const transformed = transform(text.slice(pendingIndex, match.index));
 		result += transformed;
 		resultOrigin += "I".repeat(transformed.length);
@@ -2190,7 +2207,10 @@ function trailingOutsidePreservedPlaceholderChunk(
 	for (;;) {
 		const match = PLACEHOLDER_RE.exec(text);
 		if (match === null) break;
-		if (!shouldPreservePlaceholder(match[0])) continue;
+		if (!shouldPreservePlaceholder(match[0])) {
+			resumePlaceholderScanAfterRejectedCandidate(match);
+			continue;
+		}
 		sawPlaceholder = true;
 		pendingIndex = match.index + match[0].length;
 	}
