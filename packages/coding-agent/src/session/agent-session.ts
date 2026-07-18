@@ -7536,24 +7536,14 @@ export class AgentSession {
 	 * Changes take effect before the next model call.
 	 */
 	async setActiveToolsByName(toolNames: string[]): Promise<void> {
-		const mounted = this.#mountedXdevToolNames;
 		const normalized = normalizeToolNames(toolNames);
-		const transportWriteActive =
-			this.#builtInToolNames.has("write") &&
-			this.getActiveToolNames().includes("write") &&
-			this.#presentationPinnedToolNames?.has("write") !== true &&
-			this.#runtimeSelectedToolNames?.has("write") !== true &&
-			(mounted.size > 0 || this.#planModeState?.enabled === true);
-		const previousRuntimeSelectedToolNames = this.#runtimeSelectedToolNames;
-		this.#runtimeSelectedToolNames = new Set(
-			normalized.filter(name => !mounted.has(name) && !(name === "write" && transportWriteActive)),
+		// Transport-write eligibility keys off the *current* active set: an ordinary
+		// selection change should not demote `write` unless it is already active.
+		await this.#applyToolPresentation(
+			normalized,
+			this.#mountedXdevToolNames,
+			this.getActiveToolNames().includes("write"),
 		);
-		try {
-			await this.#applyActiveToolsByName(normalized);
-		} catch (error) {
-			this.#runtimeSelectedToolNames = previousRuntimeSelectedToolNames;
-			throw error;
-		}
 	}
 
 	/**
@@ -7572,10 +7562,28 @@ export class AgentSession {
 	 */
 	async setActiveToolPresentation(toolNames: string[], mountedToolNames: string[]): Promise<void> {
 		const normalized = normalizeToolNames(toolNames);
-		const mounted = new Set(normalizeToolNames(mountedToolNames));
+		// Restoration targets a snapshot, so write eligibility comes from the
+		// *target* set rather than whatever happens to be active mid-rollback.
+		await this.#applyToolPresentation(
+			normalized,
+			new Set(normalizeToolNames(mountedToolNames)),
+			normalized.includes("write"),
+		);
+	}
+
+	/**
+	 * Shared body for {@link setActiveToolsByName} and {@link setActiveToolPresentation}:
+	 * pins non-mounted names as the runtime selection (holding `write` back when it is
+	 * transport-only) and applies the set, rolling the selection back if apply throws.
+	 */
+	async #applyToolPresentation(
+		normalized: string[],
+		mounted: ReadonlySet<string>,
+		writeSelected: boolean,
+	): Promise<void> {
 		const transportWriteActive =
+			writeSelected &&
 			this.#builtInToolNames.has("write") &&
-			normalized.includes("write") &&
 			this.#presentationPinnedToolNames?.has("write") !== true &&
 			this.#runtimeSelectedToolNames?.has("write") !== true &&
 			(mounted.size > 0 || this.#planModeState?.enabled === true);

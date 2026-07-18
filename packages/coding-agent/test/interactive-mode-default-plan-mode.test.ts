@@ -260,6 +260,8 @@ describe("InteractiveMode plan.defaultOnStartup", () => {
 		expect(created.planModeEnabled).toBe(false);
 		expect(session?.getPlanModeState()).toBeUndefined();
 		expect(session?.model?.id).toBe(previousModel?.id);
+		// Pre-existing successful-exit behavior (unchanged by this fix): restoring the
+		// pre-plan tool set drops the MCP device and plan-only selections entirely.
 		expect(session?.getActiveToolNames()).toEqual(["read"]);
 		expect(session?.getMountedXdevToolNames()).toEqual([]);
 		expect(xdevRegistry.get(mountedTool.name)).toBeUndefined();
