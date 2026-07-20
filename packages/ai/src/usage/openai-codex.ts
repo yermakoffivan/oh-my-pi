@@ -527,6 +527,10 @@ export const openaiCodexUsageProvider: UsageProvider = {
 				limitReached: parsed?.limitReached,
 				email,
 				accountId,
+				// The ChatGPT workspace doubles as the org scope: reports from a
+				// personal plan and a Team/Enterprise seat under the same email
+				// must not merge (mirrors Anthropic org partitioning).
+				orgId: accountId,
 			},
 			raw: parsed?.raw ?? payload,
 		};

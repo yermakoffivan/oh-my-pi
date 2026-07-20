@@ -67,6 +67,20 @@ describe("openai-codex usage parser", () => {
 		expect(main?.[0].amount.usedFraction).toBeCloseTo(0.04, 5);
 	});
 
+	it("stamps the workspace id as metadata.orgId so same-email workspaces do not merge", async () => {
+		const report = await openaiCodexUsageProvider.fetchUsage(
+			{
+				provider: "openai-codex",
+				credential: { type: "oauth", accessToken: accessTokenFixture, accountId: "acct-1", email: "u@example.com" },
+			},
+			{ fetch: fakeFetch(makePayload()) },
+		);
+		// accountId prefers the stored credential value over the token claim;
+		// orgId must mirror whichever accountId the report carries.
+		expect(report?.metadata?.accountId).toBe("acct-1");
+		expect(report?.metadata?.orgId).toBe("acct-1");
+	});
+
 	it("surfaces additional_rate_limits as spark UsageLimit entries the widget can detect", async () => {
 		const report = await openaiCodexUsageProvider.fetchUsage(
 			{
