@@ -287,11 +287,14 @@ async function packAndPublish(dir: string, name: string): Promise<void> {
 }
 
 /**
- * npm's stable machine codes for an existing exact version:
- * `E409` from a registry conflict and `EPUBLISHCONFLICT` from npm.
+ * npm's stable machine codes for an existing exact version, plus npm 11's
+ * registry-precheck prose when it emits no machine code.
  */
 export function isVersionAlreadyPublished(output: string): boolean {
-	return /npm error code (E409|EPUBLISHCONFLICT)\b/i.test(output);
+	return (
+		/npm error code (E409|EPUBLISHCONFLICT)\b/i.test(output) ||
+		/you cannot publish over (?:the )?previously published versions?\b/i.test(output)
+	);
 }
 
 async function publishGeneratedLeafPackage(leaf: GeneratedLeafPackage): Promise<void> {
