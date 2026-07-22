@@ -10,7 +10,10 @@ afterEach(async () => {
 	await Promise.all(tempDirs.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true })));
 });
 
-async function run(command: string[], env: NodeJS.ProcessEnv = process.env): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function run(
+	command: string[],
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
 	const proc = Bun.spawn(command, {
 		cwd: repoRoot,
 		env,
@@ -43,10 +46,10 @@ describe("musl release artifacts", () => {
 
 		expect(result.exitCode, result.stderr).toBe(0);
 		expect(result.stdout).toContain(
-			"--target=bun-linux-x64-musl-baseline ./packages/coding-agent/src/cli.ts --outfile packages/coding-agent/binaries/omp-linux-musl-x64",
+			"Bun.build target=bun-linux-x64-musl-baseline outfile=packages/coding-agent/binaries/omp-linux-musl-x64",
 		);
 		expect(result.stdout).toContain(
-			"--target=bun-linux-arm64-musl ./packages/coding-agent/src/cli.ts --outfile packages/coding-agent/binaries/omp-linux-musl-arm64",
+			"Bun.build target=bun-linux-arm64-musl outfile=packages/coding-agent/binaries/omp-linux-musl-arm64",
 		);
 	});
 

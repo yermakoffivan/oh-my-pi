@@ -7,9 +7,14 @@
 - Added `/tree` re-answer for a past `ask` toolResult: selecting it now re-opens the picker with the original questions and branches the new answer as a sibling toolResult, leaving the original answer's branch reachable ([#5895](https://github.com/can1357/oh-my-pi/pull/5895) by [@Mathews-Tom](https://github.com/Mathews-Tom)).
 - Added configurable Hindsight client request deadlines via `hindsight.requestTimeoutMs` / `reflectTimeoutMs` / `recallTimeoutMs` / `retainTimeoutMs` settings (and matching `HINDSIGHT_*_TIMEOUT_MS` env vars).
 
+### Changed
+
+- Added `omp-linux-musl-x64` and `omp-linux-musl-arm64` release binaries for Alpine and other musl-based Linux distributions, with automatic musl selection in the binary installer. ([#3367](https://github.com/can1357/oh-my-pi/issues/3367))
+
 ### Fixed
 
 - Fixed `Ctrl+V` clipboard paste being dropped while API-key and other modal prompts own focus ([#6057](https://github.com/can1357/oh-my-pi/issues/6057)).
+- Fixed `omp update` on musl-based Linux hosts downloading the glibc release binary over a musl install; self-update now detects a musl host (Alpine release file or musl loader) and fetches the matching `omp-linux-musl-*` asset.
 - Fixed `scripts/install.sh` installing an x86_64 build on Apple Silicon when an x86_64 `bun` runs under Rosetta. The default path only checked whether `bun` existed; it now compares `bun`'s `process.arch` to the host (detected via `sysctl -in hw.optional.arm64` so Rosetta can't spoof it) and falls back to the prebuilt native binary on a mismatch, while `--source` errors with an actionable message. `install_binary` also derives the arch from the real host instead of the Rosetta-translated `uname -m` ([#6268](https://github.com/can1357/oh-my-pi/issues/6268)).
 - Fixed the model picker hiding Codex models available only through a second configured ChatGPT/Codex OAuth account. Catalog discovery now resolves every stored `openai-codex` OAuth account and unions their `/models` catalogs instead of surfacing only the discovery preflight account's list ([#6265](https://github.com/can1357/oh-my-pi/issues/6265)).
 - Fixed GitHub Copilot 1M-context models (e.g. `github-copilot/gpt-5.6-sol-1m`) disappearing from the model picker on restart, with a `Could not restore model` warning, until discovery was manually refreshed. The startup cache loader now restores their transport headers from the bundled base via `requestModelId`. ([#6037](https://github.com/can1357/oh-my-pi/issues/6037), [#6284](https://github.com/can1357/oh-my-pi/issues/6284))
@@ -747,7 +752,6 @@
 - Redesigned OAuth logins to run inside a cancellable dialog (aborted via Esc) rather than an inescapable pairing prompt.
 - Reworked the subagent soft request budget to gracefully steer child agents to wrap up and yield partial findings instead of silently terminating them, and raised the default budget to 200 requests.
 - Updated task rendering to retain the agent type badge on live progress and finished result rows.
-- Added `omp-linux-musl-x64` and `omp-linux-musl-arm64` release binaries for Alpine and other musl-based Linux distributions, with automatic musl selection in the binary installer. ([#3367](https://github.com/can1357/oh-my-pi/issues/3367))
 
 ### Fixed
 
