@@ -1,13 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+
+### Added
+
+- Added `/tree` re-answer for a past `ask` toolResult: selecting it now re-opens the picker with the original questions and branches the new answer as a sibling toolResult, leaving the original answer's branch reachable ([#5895](https://github.com/can1357/oh-my-pi/pull/5895) by [@Mathews-Tom](https://github.com/Mathews-Tom)).
+- Added configurable Hindsight client request deadlines via `hindsight.requestTimeoutMs` / `reflectTimeoutMs` / `recallTimeoutMs` / `retainTimeoutMs` settings (and matching `HINDSIGHT_*_TIMEOUT_MS` env vars).
+
 ### Fixed
 
 - Fixed `Ctrl+V` clipboard paste being dropped while API-key and other modal prompts own focus ([#6057](https://github.com/can1357/oh-my-pi/issues/6057)).
-
-
-### Fixed
-
 - Fixed `scripts/install.sh` installing an x86_64 build on Apple Silicon when an x86_64 `bun` runs under Rosetta. The default path only checked whether `bun` existed; it now compares `bun`'s `process.arch` to the host (detected via `sysctl -in hw.optional.arm64` so Rosetta can't spoof it) and falls back to the prebuilt native binary on a mismatch, while `--source` errors with an actionable message. `install_binary` also derives the arch from the real host instead of the Rosetta-translated `uname -m` ([#6268](https://github.com/can1357/oh-my-pi/issues/6268)).
 - Fixed the model picker hiding Codex models available only through a second configured ChatGPT/Codex OAuth account. Catalog discovery now resolves every stored `openai-codex` OAuth account and unions their `/models` catalogs instead of surfacing only the discovery preflight account's list ([#6265](https://github.com/can1357/oh-my-pi/issues/6265)).
 - Fixed GitHub Copilot 1M-context models (e.g. `github-copilot/gpt-5.6-sol-1m`) disappearing from the model picker on restart, with a `Could not restore model` warning, until discovery was manually refreshed. The startup cache loader now restores their transport headers from the bundled base via `requestModelId`. ([#6037](https://github.com/can1357/oh-my-pi/issues/6037), [#6284](https://github.com/can1357/oh-my-pi/issues/6284))
@@ -18,64 +20,47 @@
 - Fixed Agent Hub freezing for tens of seconds when opening a large read-only Advisor transcript. On cold open the viewer laid out every synthetic `Session update` input as full Markdown before `ScrollView` clipped the viewport (a 6.5 MiB `__advisor.jsonl` blocked `render()` for ~27s in a repro). Synthetic (agent-attributed) inputs now collapse to a compact summary row (`<heading> · <size> · <n> lines · ctrl+o`) and build their Markdown body only when expanded, so blocks above the viewport never pay layout cost on first frame ([#6308](https://github.com/can1357/oh-my-pi/issues/6308)).
 - Fixed `/agents` showing prewalk as off for the bundled `task` agent when `task.prewalk` enables its runtime default ([#6306](https://github.com/can1357/oh-my-pi/issues/6306)).
 - Fixed `hub start`/`for:"ready"` waits blocking for the full readiness timeout when the launched process became ready and exited within one poll interval (or exited before ever becoming ready). The wait now wakes on the sticky `readyAt` marker or any terminal state instead of sampling the transient live state, and `start` reports `Process exited before readiness was observed.` for a pre-ready exit ([#6303](https://github.com/can1357/oh-my-pi/issues/6303)).
-
-### Fixed
-
 - Fixed `tools.maxTimeout` only clamping explicitly-passed tool timeouts: the per-tool default (e.g. `bash` 300s), used whenever the agent omits `timeout`, bypassed the ceiling entirely. `clampTimeout` now caps the resolved effective timeout — including the default-fallback path — against `tools.maxTimeout` at every call site (`bash`, `eval`, `browser`, `debug`, `lsp`, `fetch`, and the session-level bash executor) ([#6294](https://github.com/can1357/oh-my-pi/issues/6294)).
-
-### Fixed
-
 - Fixed MCP argument-shaping parity between direct and Task/subagent tool calls: `MCPTool`/`DeferredMCPTool` now declare `strict: false` so OpenAI-family serializers preserve the explicit non-strict flag (models no longer over-fill mutually exclusive optional fields), and Task proxies (`createMCPProxyTools`) now delegate to the current source MCP tool instead of rebuilding a raw `tools/call`, so harness-intent (`i`) stripping, optional-placeholder pruning, local-URL resolution, reconnect, abort, and result metadata match the direct path. Strict servers no longer reject proxied calls with `unrecognized_keys ["i"]` ([#6208](https://github.com/can1357/oh-my-pi/issues/6208)).
-
-### Fixed
-
 - Fixed the remapped TypeBox compatibility shim omitting `Type.Unsafe`, which crashed extensions such as `pi-mcp-adapter` when they registered tools from raw MCP input schemas ([#6221](https://github.com/can1357/oh-my-pi/issues/6221)).
-
-### Fixed
-
 - Fixed `omp models` hanging after output when loaded extensions kept background resources alive; the one-shot command now emits `session_shutdown` and clears managed extension timers before returning ([#6297](https://github.com/can1357/oh-my-pi/issues/6297)).
-
-### Fixed
-
 - Fixed HTML session exports overflowing the browser call stack when rendering valid deeply nested conversation trees.
-
-### Added
-
-- Added `/tree` re-answer for a past `ask` toolResult: selecting it now re-opens the picker with the original questions and branches the new answer as a sibling toolResult, leaving the original answer's branch reachable ([#5895](https://github.com/can1357/oh-my-pi/pull/5895) by [@Mathews-Tom](https://github.com/Mathews-Tom)).
-
-## [17.0.3] - 2026-07-17
-### Added
-
-- Added an optional `apply` control to the `task` tool: with `isolated: true, apply: false`, a subagent runs in its dedicated worktree and its patch/branch artifacts are captured without applying changes to the parent checkout. `apply` defaults to `true`. Available both as a flat top-level control and per `tasks[]` item (per-item value wins).
-
-### Fixed
-
-- Fixed `task` rejecting `apply` controls unless `isolated: true`, preventing capture-only intent from silently running in the parent checkout, and kept isolation/capture-only badges visible throughout progress and result rendering.
-### Changed
-
-- Edit-tool previews, diff components, and intra-line word highlighting now compute line and word diffs natively, cutting synchronous diff time 2-10x on large inputs (a 50k-line file at 20% edit density drops from ~26s to ~2.4s; see `packages/natives/bench/diff-results.md`) ([#6279](https://github.com/can1357/oh-my-pi/pull/6279) by [@wolfiesch](https://github.com/wolfiesch)).
-
-## [17.0.7] - 2026-07-21
-
-### Fixed
-
-- Fixed Portkey/gateway custom models whose ids start with `@` (e.g. `@modal/GLM-5-2-FP8`) being rewritten to unrelated bundled wire ids (e.g. `glm-5-2`), which caused `400` responses requiring `x-portkey-config` or `x-portkey-provider`.
-### Fixed
-
 - Fixed summarized changelog entries being reintroduced by stale pull-request merges and repeated in later patch release notes ([#6157](https://github.com/can1357/oh-my-pi/issues/6157)).
 - Fixed AgentSession ending task agents on the provider terminal message `Unable to connect. Is the computer able to access the url?` instead of entering its bounded auto-retry path ([#6139](https://github.com/can1357/oh-my-pi/pull/6139)).
 - Fixed a cache-cold startup race where `modelRoles.default` pointing at a `models.yml` discovery provider (e.g. a custom OpenAI-compatible endpoint with `discovery.type: openai-models-list`) was silently replaced by an unrelated authenticated provider's default. `createAgentSession` resolves the default role before background discovery populates the catalog, so on a cold `models.db` the configured provider had no models yet and the fallback went straight to `pickDefaultAvailableModel`. Startup now awaits one cache-aware discovery pass and re-resolves the configured default whenever it is still unresolved (not only when nothing resolved at all) before accepting a bundled-provider fallback ([#6162](https://github.com/can1357/oh-my-pi/issues/6162)).
 - Fixed unqualified `--model` startup selection preferring an unauthenticated provider's catalog entry over the same model from a configured provider. ([#6150](https://github.com/can1357/oh-my-pi/issues/6150))
 - Fixed provider stream failures being invisible in the main log: the `agent_end` handler recorded `stopReason`/`provider`/`model` at debug only and dropped `errorMessage`/`errorStatus`/`errorId`, so a session dying repeatedly on provider errors left no actionable trace outside the session transcript. A turn ending in `stopReason:"error"` now emits one warn-level `agent turn ended with provider error` log carrying `provider`, `model`, `errorMessage`, `errorStatus`, and `errorId` ([#6177](https://github.com/can1357/oh-my-pi/issues/6177)).
 - Fixed parallel `todo done` calls losing completions when asynchronous session event handling replayed stale result snapshots over newer tool state ([#6148](https://github.com/can1357/oh-my-pi/issues/6148)).
-
-### Fixed
-
 - Fixed `omp` crashing with `[Unhandled Rejection] Error: ENOENT ... uv_spawn 'git'` when `git` is not installed/on `PATH` (e.g. Windows relying on WSL git). The read-only git helpers in `utils/git.ts` spawned `git` directly and only inspected the exit code, so `Bun.spawn`/`Bun.spawnSync` throwing `ENOENT` at launch escaped as an unhandled rejection; missing-binary launches now degrade to a non-zero result (async) or `null` (sync ref readers) instead of crashing, while mutating/checked commands keep surfacing the clean "git is not installed." error ([#6169](https://github.com/can1357/oh-my-pi/issues/6169)).
+- Fixed `/changelog` and `/changelog full` reporting no entries in standalone binaries by embedding omp's release history as the safe fallback when no package asset directory exists ([#6172](https://github.com/can1357/oh-my-pi/issues/6172)).
+- Fixed isolated branch merge-back rejecting committed agent edits when the parent had unrelated uncommitted changes in the same file; dirty-baseline blobs are now seeded into the parent object database and replayed with a 3-way synthetic-tree apply ([#6135](https://github.com/can1357/oh-my-pi/issues/6135)).
+- Fixed the single 30s Hindsight client timeout aborting healthy `reflect` calls, which are agentic retrieve+synthesize ops that routinely exceed 30s; each op now has its own deadline (reflect defaults to 120s) and the timeout error reports the effective seconds ([#6125](https://github.com/can1357/oh-my-pi/issues/6125)).
+- Fixed Mnemopi consolidation re-storing cumulative session transcripts after incremental auto-retain, including after resuming a session ([#6058](https://github.com/can1357/oh-my-pi/issues/6058)).
+- Fixed turn-ending Codex rate-limit errors remaining hidden behind the fullscreen Plan Review overlay and leaving its approval promise pending ([#6086](https://github.com/can1357/oh-my-pi/issues/6086)).
+- Fixed prewalked subagents continuing to display their starting model after switching to the target model. ([#6083](https://github.com/can1357/oh-my-pi/issues/6083))
+- Fixed Esc aborting an ongoing agent turn instead of overlapping TTS playback, leaving speech uninterruptible ([#6118](https://github.com/can1357/oh-my-pi/issues/6118)).
+- Fixed project system prompts shortening working directories beneath the user's home to `~`, which could cause models to invent an incorrect absolute path for tool calls ([#6100](https://github.com/can1357/oh-my-pi/issues/6100)).
+- Fixed the TUI `/usage` matrix mis-aligning multi-account columns across quota windows: each window row was sorted independently by used fraction, so the positional `account N` labels denoted different credentials per row and an exhausted limit (e.g. a Kimi Code account's 5h window) could render under a sibling that still had quota. Account columns are now ordered once per provider (worst-first) and held stable across every window row ([#6067](https://github.com/can1357/oh-my-pi/issues/6067)).
+- Fixed near-miss `xd://` write targets silently creating filesystem paths instead of surfacing a corrective URI error ([#6123](https://github.com/can1357/oh-my-pi/issues/6123)).
+- Fixed the `task` tool rejecting a valid batch `{ context, tasks[] }` call with the misleading `task must be a string (was missing)` when `task.batch` was disabled. The flat single-spawn wire schema strips `tasks`/`context` (arktype `"+": "delete"`) and then fails on the now-missing `task` in the agent loop, preempting the tool's own actionable shape check. The tool now uses lenient argument validation so those raw args reach `execute()`, which explains the real cause (`task.batch is disabled…`) ([#6039](https://github.com/can1357/oh-my-pi/issues/6039)).
+- Fixed JS/TS `debug` launches timing out on WSL2 with `networkingMode=mirrored` by waiting for the adapter's listening banner before connecting (avoiding the ghost-accept window on a just-released reservation port) and rejecting pending DAP requests and event waiters the moment the transport closes, so any transport failure surfaces as an immediate `DAP connection closed` error instead of a silent 30s timeout ([#6055](https://github.com/can1357/oh-my-pi/issues/6055)).
+- Fixed the advisor docs (`docs/advisor-watchdog.md`) describing `/advisor`, `/advisor on`, and `/advisor off` as toggling the persisted `advisor.enabled` setting; the slash toggle is session-scoped and writes nothing to config ([#6128](https://github.com/can1357/oh-my-pi/issues/6128)).
+- Fixed post-compaction transcript rebuilds blocking the main thread by reusing settled message components and their rendered layout caches ([#6033](https://github.com/can1357/oh-my-pi/issues/6033)).
+- Fixed the fullscreen Plan Review overlay staying interactive with no feedback after a choice was picked: while the approval ran slow async work (e.g. context compaction) the overlay remained mounted, arrow keys still moved the cursor, and repeat Enter/Esc were silently swallowed, so users on Ghostty and macOS Terminal thought `/plan` was frozen. The overlay now locks input and shows a "submitting…" indicator the moment a choice commits ([#5926](https://github.com/can1357/oh-my-pi/issues/5926)).
+
+### Removed
+
+- Fixed dynamic model discovery refreshes dropping provider-level compatibility overrides from `models.yml` ([#6041](https://github.com/can1357/oh-my-pi/issues/6041)).
+- Fixed a startup crash that locked users out of the app when `prewalk.enabled` was set but the prewalk hand-off target (default `@smol`) had no configured API key; prewalk now stays unarmed with a warning instead of aborting startup ([#6064](https://github.com/can1357/oh-my-pi/issues/6064)).
+- Fixed in-progress aborts awaiting `session_stop` extension handlers whose results would be discarded ([#6134](https://github.com/can1357/oh-my-pi/issues/6134)).
+- Fixed `/retry` reporting "Nothing to retry" after a stream stalled or aborted mid-tool-call, where a synthetic tool result appended for the un-run tool call shadowed the failed assistant turn ([#6056](https://github.com/can1357/oh-my-pi/issues/6056)).
+- Fixed locally consumed extension commands triggering automatic title generation and exposing their command text to the title model ([#6061](https://github.com/can1357/oh-my-pi/issues/6061)).
+
+## [17.0.7] - 2026-07-21
 
 ### Fixed
 
-- Fixed `/changelog` and `/changelog full` reporting no entries in standalone binaries by embedding omp's release history as the safe fallback when no package asset directory exists ([#6172](https://github.com/can1357/oh-my-pi/issues/6172)).
+- Fixed Portkey/gateway custom models whose ids start with `@` (e.g. `@modal/GLM-5-2-FP8`) being rewritten to unrelated bundled wire ids (e.g. `glm-5-2`), which caused `400` responses requiring `x-portkey-config` or `x-portkey-provider`.
 
 ## [17.0.6] - 2026-07-20
 
@@ -105,8 +90,6 @@
 - Rendered `read xd://` calls in the compact grouped read view instead of a full tool-execution card; other internal URLs (`skill://`, `agent://`, …) still render full so their resolved content stays visible.
 
 ### Fixed
-
-- Fixed isolated branch merge-back rejecting committed agent edits when the parent had unrelated uncommitted changes in the same file; dirty-baseline blobs are now seeded into the parent object database and replayed with a 3-way synthetic-tree apply ([#6135](https://github.com/can1357/oh-my-pi/issues/6135)).
 
 - Fixed the interactive `!`/`!!` shell shortcut spawning fish as a login shell (`fish -l -c …`), which fired `status is-login` blocks in user config (agent/keychain setup, PATH mutation) on every command. fish is now started with `-i` instead — interactive shells source the same `config.fish`/`conf.d` files (so aliases and functions from #1816 keep working) without login-shell side effects. zsh behavior (`-l -i`) is unchanged.
 - Fixed the status-line `tok/s` badge ignoring vibe worker sessions: in `/vibe` mode the director is often idle while workers stream, so the badge showed a stale/zero rate while parallel work was actively generating tokens. The rate now aggregates the main session's live tok/s with every live vibe worker's tok/s, and falls back to the main session's own cached rate when no workers are streaming.
@@ -199,46 +182,6 @@
 - Fixed the Cursor-backed advisor losing entire turns when it selected server-native tools (`bash`, `grep`, etc.) outside its grant: exec-resolved native blocks are already rejected in-band by the advisor-scoped bridge, so they no longer trip the unavailable-tool quarantine and discard the `advise` emitted in the same turn ([#5900](https://github.com/can1357/oh-my-pi/issues/5900)).
 - Fixed custom `anthropic-messages` OAuth providers being unable to opt into configured Claude Code fingerprint header overrides. ([#5888](https://github.com/can1357/oh-my-pi/issues/5888))
 - Fixed authoritative providers (e.g. `openai-codex`) keeping unsupported bundled models selectable when a fresh model cache and an expired OAuth token coincided: built-in discovery now forces the OAuth refresh so the provider's model manager is constructed and prunes stale bundled entries (e.g. `gpt-5.4-nano`) instead of waiting out the cache TTL. ([#5364](https://github.com/can1357/oh-my-pi/issues/5364))
-- Fixed dynamic model discovery refreshes dropping provider-level compatibility overrides from `models.yml` ([#6041](https://github.com/can1357/oh-my-pi/issues/6041)).
-- Fixed a startup crash that locked users out of the app when `prewalk.enabled` was set but the prewalk hand-off target (default `@smol`) had no configured API key; prewalk now stays unarmed with a warning instead of aborting startup ([#6064](https://github.com/can1357/oh-my-pi/issues/6064)).
-- Fixed in-progress aborts awaiting `session_stop` extension handlers whose results would be discarded ([#6134](https://github.com/can1357/oh-my-pi/issues/6134)).
-- Fixed `/retry` reporting "Nothing to retry" after a stream stalled or aborted mid-tool-call, where a synthetic tool result appended for the un-run tool call shadowed the failed assistant turn ([#6056](https://github.com/can1357/oh-my-pi/issues/6056)).
-- Fixed locally consumed extension commands triggering automatic title generation and exposing their command text to the title model ([#6061](https://github.com/can1357/oh-my-pi/issues/6061)).
-### Added
-
-- Added configurable Hindsight client request deadlines via `hindsight.requestTimeoutMs` / `reflectTimeoutMs` / `recallTimeoutMs` / `retainTimeoutMs` settings (and matching `HINDSIGHT_*_TIMEOUT_MS` env vars).
-
-### Fixed
-
-- Fixed the single 30s Hindsight client timeout aborting healthy `reflect` calls, which are agentic retrieve+synthesize ops that routinely exceed 30s; each op now has its own deadline (reflect defaults to 120s) and the timeout error reports the effective seconds ([#6125](https://github.com/can1357/oh-my-pi/issues/6125)).
-- Fixed Mnemopi consolidation re-storing cumulative session transcripts after incremental auto-retain, including after resuming a session ([#6058](https://github.com/can1357/oh-my-pi/issues/6058)).
-- Fixed turn-ending Codex rate-limit errors remaining hidden behind the fullscreen Plan Review overlay and leaving its approval promise pending ([#6086](https://github.com/can1357/oh-my-pi/issues/6086)).
-- Fixed prewalked subagents continuing to display their starting model after switching to the target model. ([#6083](https://github.com/can1357/oh-my-pi/issues/6083))
-- Fixed Esc aborting an ongoing agent turn instead of overlapping TTS playback, leaving speech uninterruptible ([#6118](https://github.com/can1357/oh-my-pi/issues/6118)).
-
-### Fixed
-
-- Fixed project system prompts shortening working directories beneath the user's home to `~`, which could cause models to invent an incorrect absolute path for tool calls ([#6100](https://github.com/can1357/oh-my-pi/issues/6100)).
-
-### Fixed
-
-- Fixed the TUI `/usage` matrix mis-aligning multi-account columns across quota windows: each window row was sorted independently by used fraction, so the positional `account N` labels denoted different credentials per row and an exhausted limit (e.g. a Kimi Code account's 5h window) could render under a sibling that still had quota. Account columns are now ordered once per provider (worst-first) and held stable across every window row ([#6067](https://github.com/can1357/oh-my-pi/issues/6067)).
-
-### Fixed
-
-- Fixed near-miss `xd://` write targets silently creating filesystem paths instead of surfacing a corrective URI error ([#6123](https://github.com/can1357/oh-my-pi/issues/6123)).
-
-### Fixed
-
-- Fixed the `task` tool rejecting a valid batch `{ context, tasks[] }` call with the misleading `task must be a string (was missing)` when `task.batch` was disabled. The flat single-spawn wire schema strips `tasks`/`context` (arktype `"+": "delete"`) and then fails on the now-missing `task` in the agent loop, preempting the tool's own actionable shape check. The tool now uses lenient argument validation so those raw args reach `execute()`, which explains the real cause (`task.batch is disabled…`) ([#6039](https://github.com/can1357/oh-my-pi/issues/6039)).
-
-### Fixed
-
-- Fixed JS/TS `debug` launches timing out on WSL2 with `networkingMode=mirrored` by waiting for the adapter's listening banner before connecting (avoiding the ghost-accept window on a just-released reservation port) and rejecting pending DAP requests and event waiters the moment the transport closes, so any transport failure surfaces as an immediate `DAP connection closed` error instead of a silent 30s timeout ([#6055](https://github.com/can1357/oh-my-pi/issues/6055)).
-
-### Fixed
-
-- Fixed the advisor docs (`docs/advisor-watchdog.md`) describing `/advisor`, `/advisor on`, and `/advisor off` as toggling the persisted `advisor.enabled` setting; the slash toggle is session-scoped and writes nothing to config ([#6128](https://github.com/can1357/oh-my-pi/issues/6128)).
 
 ## [17.0.5] - 2026-07-18
 
@@ -261,8 +204,6 @@
 - Made the hashline seen-line guard opt-in and off by default via `edit.enforceSeenLines`.
 
 ### Fixed
-
-- Fixed post-compaction transcript rebuilds blocking the main thread by reusing settled message components and their rendered layout caches ([#6033](https://github.com/can1357/oh-my-pi/issues/6033)).
 
 - Fixed isolated `task` subagents mutating the parent git checkout and stacking parallel task branches by detaching the git directory.
 - Fixed Windows compatibility issues, including `launch start` daemons opening visible console windows, startup crashes when running from a drive root, and command errors in the `hub` tool with non-POSIX shells.
@@ -295,7 +236,20 @@
 - Fixed the transcript keeping finalized assistant blocks in the live compose walk after their rows entered native terminal scrollback, making each stream tick's `TranscriptContainer.render` depth-linear in session length. Fully committed finalized blocks are now compacted out of the local frame regardless of post-finalize version tracking; a later mutation no longer recommits on ordinary frames (no duplication) and rehydrates on the next destructive full replay (no loss). Compose cost for a live tail tick is now flat as depth grows (`bench/transcript-compose.bench.ts`: ratio(N5000/N500) 2.30 → 0.90) ([#5930](https://github.com/can1357/oh-my-pi/issues/5930)).
 - Fixed `/quit` and `/exit` hanging during interactive shutdown by making the mnemopi dispose path retain the current session and flush in-flight extractions without sleeping the bank; the `/memory enqueue` path and end-of-session backend enqueue still perform full cross-session consolidation. ([#3641](https://github.com/can1357/oh-my-pi/issues/3641))
 - Fixed interactive bash shortcut `cd` commands leaving the OMP session and status-line working directory unchanged.
-- Fixed the fullscreen Plan Review overlay staying interactive with no feedback after a choice was picked: while the approval ran slow async work (e.g. context compaction) the overlay remained mounted, arrow keys still moved the cursor, and repeat Enter/Esc were silently swallowed, so users on Ghostty and macOS Terminal thought `/plan` was frozen. The overlay now locks input and shows a "submitting…" indicator the moment a choice commits ([#5926](https://github.com/can1357/oh-my-pi/issues/5926)).
+
+## [17.0.3] - 2026-07-17
+
+### Added
+
+- Added an optional `apply` control to the `task` tool: with `isolated: true, apply: false`, a subagent runs in its dedicated worktree and its patch/branch artifacts are captured without applying changes to the parent checkout. `apply` defaults to `true`. Available both as a flat top-level control and per `tasks[]` item (per-item value wins).
+
+### Fixed
+
+- Fixed `task` rejecting `apply` controls unless `isolated: true`, preventing capture-only intent from silently running in the parent checkout, and kept isolation/capture-only badges visible throughout progress and result rendering.
+
+### Changed
+
+- Edit-tool previews, diff components, and intra-line word highlighting now compute line and word diffs natively, cutting synchronous diff time 2-10x on large inputs (a 50k-line file at 20% edit density drops from ~26s to ~2.4s; see `packages/natives/bench/diff-results.md`) ([#6279](https://github.com/can1357/oh-my-pi/pull/6279) by [@wolfiesch](https://github.com/wolfiesch)).
 
 ## [17.0.3] - 2026-07-17
 
