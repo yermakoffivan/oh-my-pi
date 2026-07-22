@@ -13,6 +13,7 @@
 - Fixed repeated OpenRouter Gemini reasoning-to-payload stream closures consuming the full ten-attempt retry budget; thinking-bearing `server_error: stream closed with reason: error` failures now get one recovery attempt before surfacing.
 - Fixed Agent Hub freezing for tens of seconds when opening a large read-only Advisor transcript. On cold open the viewer laid out every synthetic `Session update` input as full Markdown before `ScrollView` clipped the viewport (a 6.5 MiB `__advisor.jsonl` blocked `render()` for ~27s in a repro). Synthetic (agent-attributed) inputs now collapse to a compact summary row (`<heading> · <size> · <n> lines · ctrl+o`) and build their Markdown body only when expanded, so blocks above the viewport never pay layout cost on first frame ([#6308](https://github.com/can1357/oh-my-pi/issues/6308)).
 - Fixed `/agents` showing prewalk as off for the bundled `task` agent when `task.prewalk` enables its runtime default ([#6306](https://github.com/can1357/oh-my-pi/issues/6306)).
+- Fixed `hub start`/`for:"ready"` waits blocking for the full readiness timeout when the launched process became ready and exited within one poll interval (or exited before ever becoming ready). The wait now wakes on the sticky `readyAt` marker or any terminal state instead of sampling the transient live state, and `start` reports `Process exited before readiness was observed.` for a pre-ready exit ([#6303](https://github.com/can1357/oh-my-pi/issues/6303)).
 
 ## [17.0.7] - 2026-07-21
 
