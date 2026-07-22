@@ -1651,6 +1651,7 @@ export class Settings {
 		const configPath = this.#configPath;
 		const modifiedPaths = [...this.#modified];
 		const modifiedModelRoles = [...this.#modifiedGlobalModelRoles];
+		const globalRolesAtStart = this.#modelRolesFromLayer(this.#global);
 		this.#modified.clear();
 		this.#modifiedGlobalModelRoles.clear();
 
@@ -1666,16 +1667,34 @@ export class Settings {
 					setByPath(current, segments, value);
 				}
 
-				// Merge only the model roles we changed, so a concurrent
-				// external edit to a sibling role survives instead of being
-				// clobbered by our stale whole-map snapshot.
-				if (modifiedModelRoles.length > 0) {
-					const globalRoles = this.#modelRolesFromLayer(this.#global);
+				// Merge only the model roles captured by this save. Then retain
+				// any role changed while the async read/lock was pending before
+				// replacing #global, so the follow-up save still sees its value.
+				const latestGlobalRoles = this.#modelRolesFromLayer(this.#global);
+				const rolesToPreserve = new Set(this.#modifiedGlobalModelRoles);
+				for (const role in globalRolesAtStart) {
+					if (globalRolesAtStart[role] !== latestGlobalRoles[role]) {
+						rolesToPreserve.add(role);
+					}
+				}
+				for (const role in latestGlobalRoles) {
+					if (globalRolesAtStart[role] !== latestGlobalRoles[role]) {
+						rolesToPreserve.add(role);
+					}
+				}
+				if (modifiedModelRoles.length > 0 || rolesToPreserve.size > 0) {
 					const currentRoles = getByPath(current, ["modelRoles"]);
 					const mergedRoles: Record<string, unknown> = isRecord(currentRoles) ? { ...currentRoles } : {};
 					for (const role of modifiedModelRoles) {
-						if (Object.hasOwn(globalRoles, role)) {
-							mergedRoles[role] = globalRoles[role];
+						if (Object.hasOwn(globalRolesAtStart, role)) {
+							mergedRoles[role] = globalRolesAtStart[role];
+						} else {
+							delete mergedRoles[role];
+						}
+					}
+					for (const role of rolesToPreserve) {
+						if (Object.hasOwn(latestGlobalRoles, role)) {
+							mergedRoles[role] = latestGlobalRoles[role];
 						} else {
 							delete mergedRoles[role];
 						}

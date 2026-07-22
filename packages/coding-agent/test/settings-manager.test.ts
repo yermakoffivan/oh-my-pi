@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Effort } from "@oh-my-pi/pi-ai";
@@ -18,6 +18,7 @@ import {
 import { AgentStorage } from "@oh-my-pi/pi-coding-agent/session/agent-storage";
 import { getProjectAgentDir, TempDir } from "@oh-my-pi/pi-utils";
 import { YAML } from "bun";
+import * as fileLock from "../src/config/file-lock";
 import { beginSettingsTest, restoreSettingsTestState, type SettingsTestState } from "./helpers/settings-test-state";
 
 function context(): Context {
@@ -62,6 +63,7 @@ describe("Settings", () => {
 	};
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		clearCustomApis();
 		__providerInFlightForTesting.setRoot(undefined);
 		AgentStorage.resetInstance();
@@ -454,6 +456,34 @@ describe("Settings", () => {
 				advisor: "moonshot/kimi-k3:max",
 				vision: "anthropic/claude-haiku-4-5",
 				smol: "anthropic/claude-haiku-4-5",
+			});
+		});
+
+		it("preserves a global role changed while an earlier save is pending", async () => {
+			await writeSettings({
+				modelRoles: { default: "anthropic/claude-sonnet-4-5" },
+			});
+			const settings = await Settings.init({ cwd: projectDir, agentDir });
+			const firstSaveEntered = Promise.withResolvers<void>();
+			const releaseFirstSave = Promise.withResolvers<void>();
+			const withFileLock = fileLock.withFileLock;
+			vi.spyOn(fileLock, "withFileLock").mockImplementation(async (filePath, fn, options) => {
+				firstSaveEntered.resolve();
+				await releaseFirstSave.promise;
+				return withFileLock(filePath, fn, options);
+			});
+
+			settings.setModelRole("smol", "anthropic/claude-haiku-4-5");
+			await firstSaveEntered.promise;
+			settings.setModelRole("advisor", "moonshot/kimi-k3:max");
+			releaseFirstSave.resolve();
+			await settings.flush();
+
+			expect(settings.getGlobalModelRole("advisor")).toBe("moonshot/kimi-k3:max");
+			expect((await readSettings()).modelRoles).toEqual({
+				default: "anthropic/claude-sonnet-4-5",
+				smol: "anthropic/claude-haiku-4-5",
+				advisor: "moonshot/kimi-k3:max",
 			});
 		});
 
