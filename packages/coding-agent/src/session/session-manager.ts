@@ -991,6 +991,7 @@ export class SessionManager {
 		this.#forceFileCreation = snapshot.onDisk;
 		this.#draftOnlySessionCleanupArmed = snapshot.draftOnlySessionCleanupArmed;
 		this.#applyEntries(snapshot.header, [...snapshot.entries]);
+		this.#additionalDirectories = snapshot.header.additionalDirectories ?? [];
 		this.#sessionName = snapshot.sessionName;
 		this.#titleSource = snapshot.titleSource;
 		this.#titleUpdatedAt = snapshot.titleUpdatedAt;
