@@ -187,7 +187,8 @@ describe("fixChangelogContent", () => {
 	});
 
 	it("keeps bullets the rewrite preserved verbatim instead of dropping them as consumed", () => {
-		const keptItem = "- Fixed crash when opening the empty settings panel ([#1234](https://github.com/can1357/oh-my-pi/issues/1234)).";
+		const keptItem =
+			"- Fixed crash when opening the empty settings panel ([#1234](https://github.com/can1357/oh-my-pi/issues/1234)).";
 		const document = parseChangelog(
 			["# Changelog", "", "## [Unreleased]", "", "### Fixed", "", keptItem, ""].join("\n"),
 		);
