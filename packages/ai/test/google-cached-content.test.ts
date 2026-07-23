@@ -22,6 +22,10 @@ const contextWithSystemAndTools: Context = {
 	tools: [tool],
 };
 
+const cacheOnlyContext: Context = {
+	messages: [{ role: "user", content: "use the cache", timestamp: 1 }],
+};
+
 const geminiModel: Model<"google-generative-ai"> = buildModel({
 	id: "gemini-2.5-flash",
 	name: "Gemini 2.5 Flash",
@@ -107,7 +111,7 @@ describe("Google caller-owned cachedContent", () => {
 	it("sets exact cachedContent on the direct Gemini GenerateContent wire body", async () => {
 		const { fetch, calls } = capturingFetch();
 		await drain(
-			streamGoogle(geminiModel, contextWithSystemAndTools, {
+			streamGoogle(geminiModel, cacheOnlyContext, {
 				apiKey: "k",
 				cachedContent: CACHE_NAME,
 				fetch,
@@ -119,25 +123,15 @@ describe("Google caller-owned cachedContent", () => {
 		expect(url).toContain(":streamGenerateContent");
 		expect(url).not.toContain("/cachedContents");
 		expect(body.cachedContent).toBe(CACHE_NAME);
-		expect(body.systemInstruction).toEqual({
-			parts: [{ text: "stable system instruction" }],
-		});
-		expect(body.tools).toEqual([
-			{
-				functionDeclarations: [
-					expect.objectContaining({
-						name: "lookup",
-						description: "Lookup a fact",
-					}),
-				],
-			},
-		]);
+		expect(body.systemInstruction).toBeUndefined();
+		expect(body.tools).toBeUndefined();
+		expect(body.toolConfig).toBeUndefined();
 	});
 
 	it("sets exact cachedContent on the Vertex GenerateContent wire body", async () => {
 		const { fetch, calls } = capturingFetch();
 		await drain(
-			streamGoogleVertex(vertexModel, contextWithSystemAndTools, {
+			streamGoogleVertex(vertexModel, cacheOnlyContext, {
 				apiKey: "k",
 				project: "demo-project",
 				location: "us-central1",
@@ -151,16 +145,15 @@ describe("Google caller-owned cachedContent", () => {
 		expect(url).toContain(":streamGenerateContent");
 		expect(url).not.toMatch(/\/cachedContents(?:\/|$|\?)/);
 		expect(body.cachedContent).toBe(VERTEX_CACHE_NAME);
-		expect(body.systemInstruction).toEqual({
-			parts: [{ text: "stable system instruction" }],
-		});
-		expect((body.tools as unknown[] | undefined)?.length).toBe(1);
+		expect(body.systemInstruction).toBeUndefined();
+		expect(body.tools).toBeUndefined();
+		expect(body.toolConfig).toBeUndefined();
 	});
 
 	it("rejects blank cachedContent in the shared builder before transport", () => {
 		for (const blank of ["", "   ", "\t\n"]) {
 			expect(() =>
-				buildGoogleGenerateContentParams(geminiModel, contextWithSystemAndTools, {
+				buildGoogleGenerateContentParams(geminiModel, cacheOnlyContext, {
 					apiKey: "k",
 					cachedContent: blank,
 				}),
@@ -171,7 +164,7 @@ describe("Google caller-owned cachedContent", () => {
 	it("rejects blank cachedContent in the stream before any fetch", async () => {
 		const { fetch, calls } = capturingFetch();
 		const events = await drain(
-			streamGoogle(geminiModel, contextWithSystemAndTools, {
+			streamGoogle(geminiModel, cacheOnlyContext, {
 				apiKey: "k",
 				cachedContent: "  ",
 				fetch,
@@ -190,17 +183,41 @@ describe("Google caller-owned cachedContent", () => {
 		expect(params.config?.cachedContent).toBeUndefined();
 	});
 
-	it("preserves caller systemInstruction and tools alongside cachedContent in the builder", () => {
-		const params = buildGoogleGenerateContentParams(geminiModel, contextWithSystemAndTools, {
-			apiKey: "k",
-			cachedContent: CACHE_NAME,
-		});
-		expect(params.config?.cachedContent).toBe(CACHE_NAME);
-		expect(params.config?.systemInstruction).toEqual({
-			parts: [{ text: "stable system instruction" }],
-		});
-		expect(params.config?.tools).toBeDefined();
-		expect(params.config?.tools?.[0]?.functionDeclarations?.[0]?.name).toBe("lookup");
+	it("rejects cachedContent with request-level systemInstruction", () => {
+		expect(() =>
+			buildGoogleGenerateContentParams(
+				geminiModel,
+				{ ...cacheOnlyContext, systemPrompt: ["stable system instruction"] },
+				{ apiKey: "k", cachedContent: CACHE_NAME },
+			),
+		).toThrow("cachedContent cannot be combined with request-level systemInstruction");
+	});
+
+	it("rejects cachedContent with request-level tools", () => {
+		expect(() =>
+			buildGoogleGenerateContentParams(
+				geminiModel,
+				{ ...cacheOnlyContext, tools: [tool] },
+				{
+					apiKey: "k",
+					cachedContent: CACHE_NAME,
+				},
+			),
+		).toThrow("cachedContent cannot be combined with request-level tools");
+	});
+
+	it("rejects cachedContent with request-level toolConfig", () => {
+		expect(() =>
+			buildGoogleGenerateContentParams(
+				geminiModel,
+				{ ...cacheOnlyContext, tools: [tool] },
+				{
+					apiKey: "k",
+					cachedContent: CACHE_NAME,
+					toolChoice: "none",
+				},
+			),
+		).toThrow("cachedContent cannot be combined with request-level tools, toolConfig");
 	});
 
 	it("normalizes cachedContentTokenCount into Usage.cacheRead without double-counting input", async () => {
@@ -213,7 +230,7 @@ describe("Google caller-owned cachedContent", () => {
 			}),
 		);
 		const events = await drain(
-			streamGoogle(geminiModel, contextWithSystemAndTools, {
+			streamGoogle(geminiModel, cacheOnlyContext, {
 				apiKey: "k",
 				cachedContent: CACHE_NAME,
 				fetch,
@@ -233,7 +250,7 @@ describe("Google caller-owned cachedContent", () => {
 	it("does not invoke Google cache lifecycle endpoints when referencing cached content", async () => {
 		const { fetch, calls } = capturingFetch();
 		await drain(
-			streamGoogle(geminiModel, contextWithSystemAndTools, {
+			streamGoogle(geminiModel, cacheOnlyContext, {
 				apiKey: "k",
 				cachedContent: CACHE_NAME,
 				fetch,

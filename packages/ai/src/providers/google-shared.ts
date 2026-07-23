@@ -882,6 +882,16 @@ export function buildGoogleGenerateContentParams<T extends "google-generative-ai
 		if (options.cachedContent.trim().length === 0) {
 			throw new AIError.ValidationError("cachedContent must not be blank");
 		}
+		const incompatibleFields = [
+			config.systemInstruction !== undefined && "systemInstruction",
+			config.tools !== undefined && "tools",
+			config.toolConfig !== undefined && "toolConfig",
+		].filter((field): field is string => Boolean(field));
+		if (incompatibleFields.length > 0) {
+			throw new AIError.ValidationError(
+				`cachedContent cannot be combined with request-level ${incompatibleFields.join(", ")}`,
+			);
+		}
 		config.cachedContent = options.cachedContent;
 	}
 
