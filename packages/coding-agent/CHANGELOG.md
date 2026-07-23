@@ -5,6 +5,7 @@
 ### Fixed
 
 - Fixed credential-shaped tokens (GitHub/GitLab/OpenAI/Anthropic key patterns) being redacted from outbound provider requests even with `secrets.enabled` off; the pattern redaction now follows the `secrets.enabled` ("Hide Secrets") setting like the secret obfuscator.
+- Fixed a cancelled `lsp reload` reporting `Restarted <server>` while killing the server with no replacement: `reloadServer` swallowed `ToolAbortError`/tool timeout in both fallback `catch` blocks and fell through to `proc.kill()`. Cancellation and timeout now propagate; the rust-analyzer fallback only triggers on genuine method-not-found; and a wedged-connection teardown removes the client by identity and awaits confirmed process exit before claiming a restart (surfacing a truthful teardown error if the process outlives the kill). ([#6369](https://github.com/can1357/oh-my-pi/issues/6369))
 - Fixed Ctrl-clicking a wrapped OAuth authorization URL opening only the clicked row's truncated fragment by preserving the complete hyperlink target on every rendered row.
 - Fixed used-only absolute usage amounts across output surfaces: CLI now renders `$123.45 used`; the TUI shows a neutral, width-bounded amount instead of a pending/dotted/account-count placeholder; and ACP preserves `123.45 usd used` while suppressing duplicate window suffixes such as `— extra`. ([#5575](https://github.com/can1357/oh-my-pi/issues/5575))
 
