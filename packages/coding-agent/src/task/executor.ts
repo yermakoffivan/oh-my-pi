@@ -287,6 +287,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Options for subagent execution */
 export interface ExecutorOptions {
 	cwd: string;
+	/** Additional workspace directories to seed on the subagent session (multi-root). */
+	additionalDirectories?: string[];
 	worktree?: string;
 	agent: AgentDefinition;
 	task: string;
@@ -2237,7 +2239,11 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	const settings = options.settings ?? Settings.isolated();
 	const subagentSettings = createSubagentSettings(
 		settings,
-		agent.readSummarize === false ? { "read.summarize.enabled": false } : undefined,
+		{
+			...(agent.readSummarize === false ? { "read.summarize.enabled": false } : undefined),
+			// Isolated runs must not expose roots outside the worktree.
+			...(worktree !== undefined ? { "workspace.additionalDirectories": [] } : undefined),
+		},
 		options.parentServiceTier,
 	);
 	const maxRecursionDepth = settings.get("task.maxRecursionDepth") ?? 2;
@@ -2556,6 +2562,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 			// artifacts dir) — only the SessionManager differs.
 			const buildSubagentSessionOptions = (sessionManagerForRun: SessionManager): CreateAgentSessionOptions => ({
 				cwd: worktree ?? cwd,
+				additionalDirectories: worktree !== undefined ? undefined : options.additionalDirectories,
 				authStorage,
 				modelRegistry,
 				settings: subagentSettings,

@@ -10071,7 +10071,10 @@ export class AgentSession {
 			} else {
 				await this.sessionManager.flush();
 			}
-			await this.sessionManager.newSession(options);
+			await this.sessionManager.newSession({
+				...options,
+				additionalDirectories: this.settings.get("workspace.additionalDirectories"),
+			});
 			this.#markBashSessionTransition(bashTransition);
 			sessionTransitioned = true;
 		} finally {
@@ -10100,6 +10103,9 @@ export class AgentSession {
 		this.#planReferencePath = "local://PLAN.md";
 		this.#resetAdvisorSessionState();
 		this.#reconnectToAgent();
+		// The workspace-roots block must reflect the new session's directory set,
+		// not the previous session's — refresh before the next turn goes out.
+		await this.refreshBaseSystemPrompt();
 
 		// Emit session_switch event with reason "new" to hooks
 		if (this.#extensionRunner) {
@@ -17158,6 +17164,17 @@ export class AgentSession {
 				logger.warn("Failed to reconcile session mode after switch", {
 					targetSessionFile: sessionPath,
 					error: String(error),
+				});
+			}
+			// Refresh the workspace-roots block to match the resumed session's directory set.
+			// Wrapped so a rebuild failure (e.g. a gate that intentionally fails in tests)
+			// doesn't roll back an otherwise-successful session switch.
+			try {
+				await this.refreshBaseSystemPrompt();
+			} catch (refreshErr) {
+				logger.warn("Failed to refresh system prompt after session switch", {
+					targetSessionFile: sessionPath,
+					error: String(refreshErr),
 				});
 			}
 			this.#finishBashSessionTransition(bashTransition, true);

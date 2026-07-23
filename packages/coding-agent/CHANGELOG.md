@@ -103,6 +103,7 @@
 - Fixed in-progress aborts awaiting `session_stop` extension handlers whose results would be discarded.
 - Fixed `/retry` reporting "Nothing to retry" after a stream stalled or aborted mid-tool-call.
 - Fixed locally consumed extension commands triggering automatic title generation and exposing their command text to the title model.
+- Added dynamic multi-root workspace context (issue [#2569](https://github.com/can1357/oh-my-pi/issues/2569)): a session now carries an ordered list of workspace directories beyond `cwd`, managed live from the terminal. New `/add-dir <path>`, `/remove-dir <path>`, and `/dirs` slash commands let you add and remove folders mid-session; the repeatable `--add-dir <path>` CLI flag seeds them at launch, and the `workspace.additionalDirectories` setting persists defaults per project. Additional roots are persisted in the session header, survive reopen/fork/move, and are surfaced to the agent in the system prompt so it knows they exist and can `read`/`grep`/`glob` them by absolute path. Design aligns with the endorsed community implementation on `feature/session-workspace`.
 
 ## [17.0.7] - 2026-07-21
 

@@ -144,6 +144,8 @@ export interface DeferredDiagnosticsEntry {
 export interface ToolSession {
 	/** Current working directory */
 	cwd: string;
+	/** Additional workspace directories beyond cwd (multi-root), forwarded to subagents. */
+	additionalDirectories?: string[];
 	/** Whether UI is available */
 	hasUI: boolean;
 	/**
