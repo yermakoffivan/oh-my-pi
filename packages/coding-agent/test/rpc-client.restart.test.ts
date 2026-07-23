@@ -15,6 +15,17 @@ function isProcessAlive(pid: number): boolean {
 }
 
 describe("RpcClient lifecycle (issue #4079 B)", () => {
+	test("auto-negotiates protocol v2 and reassembles an oversized response", async () => {
+		using client = new RpcClient({
+			cliPath: MOCK_AGENT,
+			env: { MOCK_RPC_V2: "1" },
+		});
+
+		await client.start();
+		const state = (await client.getState()) as unknown as { payload: string };
+		expect(state.payload).toBe("😀".repeat(400_000));
+	}, 20_000);
+
 	test("start() succeeds a second time after stop() on the same instance", async () => {
 		using client = new RpcClient({
 			cliPath: MOCK_AGENT,

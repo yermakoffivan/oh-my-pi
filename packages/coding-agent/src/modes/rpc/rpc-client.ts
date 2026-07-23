@@ -12,6 +12,7 @@ import { isRecord, ptree, readJsonl } from "@oh-my-pi/pi-utils";
 import type { FileSink } from "bun";
 import type { BashResult } from "../../exec/bash-executor";
 import type { AgentSessionEvent, SessionStats } from "../../session/agent-session";
+import { MAX_RPC_FRAME_BYTES, MAX_RPC_REASSEMBLED_BYTES, RpcFrameDecoder } from "./rpc-frame";
 import type {
 	RpcAvailableCommandsUpdateFrame,
 	RpcAvailableSlashCommand,
@@ -134,6 +135,16 @@ function isRpcResponse(value: unknown): value is RpcResponse {
 		return typeof value.error === "string";
 	}
 	return true;
+}
+
+function supportsRpcProtocolV2(value: Record<string, unknown>): boolean {
+	return (
+		value.type === "ready" &&
+		Array.isArray(value.supportedProtocolVersions) &&
+		value.supportedProtocolVersions.includes(2) &&
+		value.maxFrameBytes === MAX_RPC_FRAME_BYTES &&
+		value.maxReassembledFrameBytes === MAX_RPC_REASSEMBLED_BYTES
+	);
 }
 
 function isAgentEvent(value: unknown): value is AgentEvent {
@@ -269,6 +280,9 @@ export class RpcClient {
 		// Wait for the "ready" signal or process exit
 		const { promise: readyPromise, resolve: readyResolve, reject: readyReject } = Promise.withResolvers<void>();
 		let readySettled = false;
+		let protocolV2Supported = false;
+		let protocolV2Enabled = false;
+		const frameDecoder = new RpcFrameDecoder();
 
 		const reapAfterOutputFailure = async (error: Error) => {
 			if (this.#process !== child) return;
@@ -294,11 +308,15 @@ export class RpcClient {
 		void (async () => {
 			for await (const line of lines) {
 				if (!readySettled && isRecord(line) && line.type === "ready") {
+					protocolV2Supported = supportsRpcProtocolV2(line);
 					readySettled = true;
 					readyResolve();
 					continue;
 				}
-				this.#handleLine(line);
+				if (isRecord(line) && line.type === "rpc_chunk" && !protocolV2Enabled)
+					throw new Error("RPC chunk received before protocol negotiation");
+				const decoded = frameDecoder.push(line);
+				if (decoded) this.#handleLine(decoded);
 			}
 			// A closed stdout is terminal even if the child remains alive. Startup
 			// failures are reaped by the readyPromise catch below; established
@@ -359,6 +377,17 @@ export class RpcClient {
 
 		try {
 			await readyPromise;
+			if (protocolV2Supported) {
+				protocolV2Enabled = true;
+				const response = await this.#send({ type: "negotiate_protocol", protocolVersion: 2 });
+				if (
+					!response.success ||
+					response.command !== "negotiate_protocol" ||
+					!isRecord(response.data) ||
+					response.data.protocolVersion !== 2
+				)
+					throw new Error("RPC protocol v2 negotiation failed");
+			}
 			if (this.#customTools.length > 0) {
 				await this.setCustomTools(this.#customTools);
 			}

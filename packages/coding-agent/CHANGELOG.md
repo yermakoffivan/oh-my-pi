@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added opt-in RPC protocol v2 negotiation with bounded, lossless chunking for stdout objects up to 64 MiB. Legacy JSONL clients remain on protocol v1, while the TypeScript RPC client negotiates and reassembles v2 automatically.
+
 ## [17.0.8] - 2026-07-22
 
 ### Added

@@ -25,6 +25,9 @@ import type { TodoPhase } from "../../tools/todo";
 // ============================================================================
 
 export type RpcCommand =
+	// Protocol
+	| { id?: string; type: "negotiate_protocol"; protocolVersion: number }
+
 	// Prompting
 	| { id?: string; type: "prompt"; message: string; images?: ImageContent[]; streamingBehavior?: "steer" | "followUp" }
 	| { id?: string; type: "steer"; message: string; images?: ImageContent[] }
@@ -132,6 +135,23 @@ export interface RpcPromptResultFrame {
 	agentInvoked: boolean;
 }
 
+export interface RpcReadyFrame {
+	type: "ready";
+	protocolVersion: 1;
+	supportedProtocolVersions: [1, 2];
+	maxFrameBytes: number;
+	maxReassembledFrameBytes: number;
+}
+
+export interface RpcChunkFrame {
+	type: "rpc_chunk";
+	chunkId: string;
+	index: number;
+	count: number;
+	byteLength: number;
+	data: string;
+}
+
 export interface RpcHandoffResult {
 	savedPath?: string;
 }
@@ -168,6 +188,15 @@ export interface RpcSubagentMessagesResult {
 
 // Success responses with data
 export type RpcResponse =
+	// Protocol
+	| {
+			id?: string;
+			type: "response";
+			command: "negotiate_protocol";
+			success: true;
+			data: { protocolVersion: 2 };
+	  }
+
 	// Prompting (async - events follow)
 	| { id?: string; type: "response"; command: "prompt"; success: true; data?: { agentInvoked: boolean } }
 	| { id?: string; type: "response"; command: "steer"; success: true }

@@ -14,7 +14,43 @@ if (Bun.env.MOCK_RPC_IGNORE_SIGTERM === "1") {
 	process.on("SIGTERM", () => {});
 }
 
-process.stdout.write(`${JSON.stringify({ type: "ready" })}\n`);
+const supportsProtocolV2 = Bun.env.MOCK_RPC_V2 === "1";
+let protocolV2Enabled = false;
+process.stdout.write(
+	`${JSON.stringify(
+		supportsProtocolV2
+			? {
+					type: "ready",
+					protocolVersion: 1,
+					supportedProtocolVersions: [1, 2],
+					maxFrameBytes: 1024 * 1024,
+					maxReassembledFrameBytes: 64 * 1024 * 1024,
+				}
+			: { type: "ready" },
+	)}\n`,
+);
+
+function writeFrame(frame: Record<string, unknown>): void {
+	const logical = Buffer.from(JSON.stringify(frame), "utf8");
+	if (!protocolV2Enabled || logical.byteLength <= 1024 * 1024) {
+		process.stdout.write(`${logical.toString("utf8")}\n`);
+		return;
+	}
+	const chunkBytes = 256 * 1024;
+	const count = Math.ceil(logical.byteLength / chunkBytes);
+	for (let index = 0; index < count; index++) {
+		process.stdout.write(
+			`${JSON.stringify({
+				type: "rpc_chunk",
+				chunkId: "mock-rpc-v2",
+				index,
+				count,
+				byteLength: logical.byteLength,
+				data: logical.subarray(index * chunkBytes, (index + 1) * chunkBytes).toString("base64"),
+			})}\n`,
+		);
+	}
+}
 
 // Bun's `console` is an AsyncIterable over stdin lines.
 for await (const raw of console) {
@@ -32,15 +68,24 @@ for await (const raw of console) {
 			}
 			if (Bun.env.MOCK_RPC_IGNORE_COMMANDS === "1") continue;
 			const id = typeof frame.id === "string" ? frame.id : undefined;
-			process.stdout.write(
-				`${JSON.stringify({
+			if (frame.type === "negotiate_protocol" && frame.protocolVersion === 2) {
+				writeFrame({
 					id,
 					type: "response",
 					command: frame.type,
 					success: true,
-					data: {},
-				})}\n`,
-			);
+					data: { protocolVersion: 2 },
+				});
+				protocolV2Enabled = true;
+				continue;
+			}
+			writeFrame({
+				id,
+				type: "response",
+				command: frame.type,
+				success: true,
+				data: supportsProtocolV2 ? { payload: "😀".repeat(400_000) } : {},
+			});
 		}
 	} catch {
 		// ignore parse errors — the test harness sends well-formed frames.
