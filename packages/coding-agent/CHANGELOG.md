@@ -8,6 +8,9 @@
 ### Added
 
 - Added per-call `model` selection to the `task` tool, including per-item batch selectors, fallback chains, and explicit reasoning suffixes.
+### Added
+
+- Added Firecrawl keyless mode: explicitly selecting `firecrawl` as the web-search provider now works without `FIRECRAWL_API_KEY` by calling the Firecrawl REST API without an `Authorization` header; the automatic provider chain remains credential-gated (#4332).
 
 ### Fixed
 
