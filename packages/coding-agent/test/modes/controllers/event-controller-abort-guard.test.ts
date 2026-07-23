@@ -159,8 +159,8 @@ describe("EventController.sendCompletionNotification — abort guard", () => {
 		const spy = vi.spyOn(TERMINAL, "sendNotification").mockImplementation(() => {});
 		settings.override("completion.notify", "on");
 		process.env.WARP_CLI_AGENT_PROTOCOL_VERSION = "1";
-		const controller = new EventController(makeContext(makeAssistantMessage("stop")));
-		controller.sendCompletionNotification();
+		const controller = new EventController(makeContext());
+		controller.sendCompletionNotification(makeAgentEndEvent([makeAssistantMessage("stop")]));
 		expect(spy).toHaveBeenCalledTimes(0);
 	});
 });

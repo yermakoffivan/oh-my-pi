@@ -15,7 +15,7 @@ import templateJs from "./template.js" with { type: "text" };
 import toolViewsJs from "./tool-views.generated.js" with { type: "text" };
 import { webExportThemeVars } from "./web-palette";
 
-export { parseExportArgs, type ExportThemeNames } from "./args";
+export { type ExportThemeNames, parseExportArgs } from "./args";
 
 let cachedTemplate: string | undefined;
 

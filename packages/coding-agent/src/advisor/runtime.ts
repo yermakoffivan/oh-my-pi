@@ -8,8 +8,6 @@ import { obfuscateToolArguments, type SecretObfuscator } from "../secrets/obfusc
 import {
 	formatExecutionSourcePreview,
 	formatSessionHistoryMarkdown,
-	formatToolCallIntentPreview,
-	formatToolCallPrimaryArg,
 	formatToolResultErrorPreview,
 	PRIMARY_CONTEXT_CUSTOM_TYPES,
 } from "../session/session-history-format";
@@ -1205,82 +1203,6 @@ function obfuscateAdvisorMessage(
 		default:
 			return message;
 	}
-}
-
-function collectAdvisorRegexSecretValues(obfuscator: SecretObfuscator, messages: AgentMessage[]): Set<string> {
-	const values = new Set<string>();
-	const add = (value: string | undefined): void => {
-		if (value === undefined) return;
-		for (const secretValue of obfuscator.collectRegexSecretValuesForObfuscation(value)) values.add(secretValue);
-	};
-	const addJsonStrings = (value: unknown): void => {
-		if (typeof value === "string") return add(value);
-		if (Array.isArray(value)) return void value.forEach(addJsonStrings);
-		if (value !== null && typeof value === "object") Object.values(value).forEach(addJsonStrings);
-	};
-	const addContent = (content: TextualContent): void => {
-		if (typeof content === "string") return add(content);
-		for (const block of content) if (block.type === "text") add(block.text);
-	};
-	for (const message of messages) {
-		switch (message.role) {
-			case "user":
-			case "developer":
-				addContent(message.content as TextualContent);
-				break;
-			case "toolResult": {
-				if (message.isError) add(formatToolResultErrorPreview(message.content as TextualContent));
-				const diff = (message.details as { diff?: unknown } | undefined)?.diff;
-				if (typeof diff === "string") add(diff);
-				break;
-			}
-			case "custom":
-			case "hookMessage":
-				if (formatSessionHistoryMarkdown([message], { expandPrimaryContext: true }).trim()) {
-					addContent(message.content as TextualContent);
-					addJsonStrings(message.details);
-				}
-				break;
-			case "assistant":
-				for (const block of message.content) {
-					if (block.type === "text") add(block.text);
-					else if (block.type === "thinking") add(block.thinking);
-					else if (block.type === "toolCall") {
-						add(formatToolCallPrimaryArg(block.name, block.arguments));
-						add(formatToolCallIntentPreview(block.arguments));
-					}
-				}
-				break;
-			case "bashExecution":
-				add(formatExecutionSourcePreview(message.command));
-				break;
-			case "pythonExecution":
-				add(formatExecutionSourcePreview(message.code));
-				break;
-			case "branchSummary":
-			case "compactionSummary":
-				add(message.summary);
-				break;
-			case "fileMention":
-				for (const file of message.files) add(file.path);
-				break;
-		}
-	}
-	return values;
-}
-
-function obfuscateAdvisorMessages(
-	obfuscator: SecretObfuscator,
-	messages: AgentMessage[],
-	sharedRegexSecretValues: ReadonlySet<string>,
-): AgentMessage[] {
-	let changed = false;
-	const result = messages.map(message => {
-		const next = obfuscateAdvisorMessage(obfuscator, message, sharedRegexSecretValues);
-		if (next !== message) changed = true;
-		return next;
-	});
-	return changed ? result : messages;
 }
 
 function scrubAdvisorHistory(

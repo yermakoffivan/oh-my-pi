@@ -1081,9 +1081,7 @@ export class BashTool implements AgentTool<typeof bashSchemaBase | typeof bashSc
 			const { promise: timeoutPromise, resolve: resolveTimeout } = Promise.withResolvers<{
 				kind: "timeout";
 			}>();
-			const timeoutTimer = timeoutMs
-				? setTimeout(() => resolveTimeout({ kind: "timeout" }), timeoutMs)
-				: undefined;
+			const timeoutTimer = timeoutMs ? setTimeout(() => resolveTimeout({ kind: "timeout" }), timeoutMs) : undefined;
 			const { promise: abortedP, resolve: resolveAborted } = Promise.withResolvers<void>();
 			let handle: ClientBridgeTerminalHandle | undefined;
 			let killStarted = false;

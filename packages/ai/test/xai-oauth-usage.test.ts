@@ -107,7 +107,10 @@ function capturingFetch(payload: unknown): {
 }
 
 /** Route credits vs default billing URLs to different live-shaped payloads. */
-function dualBillingFetch(creditsPayload: unknown, monthlyPayload: unknown): {
+function dualBillingFetch(
+	creditsPayload: unknown,
+	monthlyPayload: unknown,
+): {
 	fetch: FetchImpl;
 	calls: Array<{ url: string }>;
 } {

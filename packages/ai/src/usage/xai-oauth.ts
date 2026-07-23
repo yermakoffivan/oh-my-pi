@@ -204,12 +204,6 @@ function parseMonthlyBillingConfig(raw: Record<string, unknown>): XaiMonthlyBill
 	};
 }
 
-function parseBillingConfig(payload: unknown): XaiBillingConfig | null {
-	if (!isRecord(payload) || !isRecord(payload.config)) return null;
-	const raw = payload.config;
-	return parseWeeklyBillingConfig(raw) ?? parseMonthlyBillingConfig(raw);
-}
-
 function buildOnDemandLimit(
 	onDemandCap: number | undefined,
 	onDemandUsed: number | undefined,

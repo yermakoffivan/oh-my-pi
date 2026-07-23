@@ -1387,7 +1387,10 @@ export class SessionManager {
 	async setAdditionalDirectories(directories: string[]): Promise<void> {
 		const workspace = normalizeSessionWorkspace({ cwd: this.#cwd, directories });
 		const next = additionalWorkspaceDirectories(workspace);
-		if (next.length === this.#additionalDirectories.length && next.every((d, i) => d === this.#additionalDirectories[i])) {
+		if (
+			next.length === this.#additionalDirectories.length &&
+			next.every((d, i) => d === this.#additionalDirectories[i])
+		) {
 			return;
 		}
 		this.#additionalDirectories = next;
