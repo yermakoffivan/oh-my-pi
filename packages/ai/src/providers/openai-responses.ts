@@ -1029,7 +1029,7 @@ export function buildParams(
 	}
 
 	if (model.compat.isVercelGatewayHost) {
-		applyVercelResponsesCacheControls(params, model.compat, cacheRetention !== "none");
+		applyVercelResponsesCacheControls(params, model.compat, cacheRetention);
 	} else {
 		applyOpenAIGatewayRouting(params, model.compat);
 	}

@@ -637,6 +637,7 @@ export interface VercelResponsesCacheParams {
 	caching?: "auto";
 	cache_anchor_items?: number;
 	cache_ttl?: "5m" | "1h";
+	providerOptions?: { gateway?: Pick<VercelGatewayRouting, "only" | "order"> };
 }
 
 export interface VercelResponsesCacheCompat {
@@ -645,20 +646,32 @@ export interface VercelResponsesCacheCompat {
 }
 
 /**
- * Apply Vercel AI Gateway's Responses-only automatic cache controls. Chat
- * Completions uses the distinct `providerOptions.gateway` shape above.
+ * Apply Vercel AI Gateway's Responses-only automatic cache controls and
+ * provider routing. Cache settings are top-level Responses fields, while
+ * `only` and `order` remain under `providerOptions.gateway`.
  */
 export function applyVercelResponsesCacheControls(
 	params: VercelResponsesCacheParams,
 	compat: VercelResponsesCacheCompat,
-	cacheEnabled = true,
+	cacheRetention: CacheRetention = "short",
 ): void {
 	const routing = compat.vercelGatewayRouting;
-	if (!cacheEnabled || !compat.isVercelGatewayHost || routing?.caching !== "auto") return;
+	if (!compat.isVercelGatewayHost) return;
+
+	if (routing?.only || routing?.order) {
+		const gateway: Pick<VercelGatewayRouting, "only" | "order"> = {};
+		if (routing.only) gateway.only = routing.only;
+		if (routing.order) gateway.order = routing.order;
+		params.providerOptions = { gateway };
+	}
+
+	if (cacheRetention === "none" || routing?.caching !== "auto") return;
 
 	params.caching = "auto";
 	if (routing.cacheAnchorItems !== undefined) params.cache_anchor_items = routing.cacheAnchorItems;
-	if (routing.cacheTtl !== undefined) params.cache_ttl = routing.cacheTtl;
+	if (routing.cacheTtl !== undefined && (routing.cacheTtl !== "1h" || cacheRetention === "long")) {
+		params.cache_ttl = routing.cacheTtl;
+	}
 }
 
 export interface OpenAIExtraBodyOptions {

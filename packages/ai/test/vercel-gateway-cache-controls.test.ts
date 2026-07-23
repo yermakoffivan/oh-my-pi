@@ -51,7 +51,7 @@ function responsesModel(provider: string, baseUrl: string, routing?: VercelGatew
 
 function captureChatPayload(
 	model: Model<"openai-completions">,
-	options: { cacheRetention?: "none" } = {},
+	options: { cacheRetention?: "long" | "short" | "none" } = {},
 ): Promise<Payload> {
 	const { promise, resolve } = Promise.withResolvers<Payload>();
 	streamOpenAICompletions(model, context, {
@@ -65,7 +65,7 @@ function captureChatPayload(
 
 function captureResponsesPayload(
 	model: Model<"openai-responses">,
-	options: { cacheRetention?: "none" } = {},
+	options: { cacheRetention?: "long" | "short" | "none" } = {},
 ): Promise<Payload> {
 	const { promise, resolve } = Promise.withResolvers<Payload>();
 	streamOpenAIResponses(model, context, {
@@ -78,7 +78,7 @@ function captureResponsesPayload(
 }
 
 describe("Vercel AI Gateway automatic cache controls", () => {
-	it("maps cache fields to their documented Chat and Responses request shapes", async () => {
+	it("maps cache fields and routing to their documented Chat and Responses request shapes", async () => {
 		const routing: VercelGatewayRouting = {
 			only: ["anthropic"],
 			order: ["anthropic", "bedrock"],
@@ -88,7 +88,9 @@ describe("Vercel AI Gateway automatic cache controls", () => {
 		};
 		const [chat, responses] = await Promise.all([
 			captureChatPayload(vercelChatModel(routing)),
-			captureResponsesPayload(responsesModel("vercel-ai-gateway", "https://ai-gateway.vercel.sh/v1", routing)),
+			captureResponsesPayload(responsesModel("vercel-ai-gateway", "https://ai-gateway.vercel.sh/v1", routing), {
+				cacheRetention: "long",
+			}),
 		]);
 
 		expect(chat.providerOptions).toEqual({
@@ -98,10 +100,44 @@ describe("Vercel AI Gateway automatic cache controls", () => {
 		expect(chat.cache_anchor_items).toBeUndefined();
 		expect(chat.cache_ttl).toBeUndefined();
 
+		expect(responses.providerOptions).toEqual({
+			gateway: { only: ["anthropic"], order: ["anthropic", "bedrock"] },
+		});
 		expect(responses.caching).toBe("auto");
 		expect(responses.cache_anchor_items).toBe(1);
 		expect(responses.cache_ttl).toBe("1h");
-		expect(responses.providerOptions).toBeUndefined();
+	});
+
+	it("uses the Vercel default TTL for default, explicit, and environment short retention", async () => {
+		const routing: VercelGatewayRouting = {
+			only: ["anthropic"],
+			order: ["anthropic", "bedrock"],
+			caching: "auto",
+			cacheAnchorItems: 1,
+			cacheTtl: "1h",
+		};
+		const defaultRetention = await captureResponsesPayload(
+			responsesModel("vercel-ai-gateway", "https://ai-gateway.vercel.sh/v1", routing),
+		);
+		const explicitShortRetention = await captureResponsesPayload(
+			responsesModel("vercel-ai-gateway", "https://ai-gateway.vercel.sh/v1", routing),
+			{ cacheRetention: "short" },
+		);
+		let environmentShortRetention!: Payload;
+		await withEnv({ PI_CACHE_RETENTION: "short" }, async () => {
+			environmentShortRetention = await captureResponsesPayload(
+				responsesModel("vercel-ai-gateway", "https://ai-gateway.vercel.sh/v1", routing),
+			);
+		});
+
+		for (const payload of [defaultRetention, explicitShortRetention, environmentShortRetention]) {
+			expect(payload.providerOptions).toEqual({
+				gateway: { only: ["anthropic"], order: ["anthropic", "bedrock"] },
+			});
+			expect(payload.caching).toBe("auto");
+			expect(payload.cache_anchor_items).toBe(1);
+			expect(payload.cache_ttl).toBeUndefined();
+		}
 	});
 
 	it("omits Chat and Responses automatic cache controls when cache retention is none", async () => {
@@ -124,6 +160,9 @@ describe("Vercel AI Gateway automatic cache controls", () => {
 		expect(chat.cache_anchor_items).toBeUndefined();
 		expect(chat.cache_ttl).toBeUndefined();
 
+		expect(responses.providerOptions).toEqual({
+			gateway: { only: ["anthropic"], order: ["anthropic", "bedrock"] },
+		});
 		expect(responses.caching).toBeUndefined();
 		expect(responses.cache_anchor_items).toBeUndefined();
 		expect(responses.cache_ttl).toBeUndefined();
@@ -148,6 +187,9 @@ describe("Vercel AI Gateway automatic cache controls", () => {
 			expect(chat.cache_anchor_items).toBeUndefined();
 			expect(chat.cache_ttl).toBeUndefined();
 
+			expect(responses.providerOptions).toEqual({
+				gateway: { only: ["anthropic"], order: ["anthropic", "bedrock"] },
+			});
 			expect(responses.caching).toBeUndefined();
 			expect(responses.cache_anchor_items).toBeUndefined();
 			expect(responses.cache_ttl).toBeUndefined();
