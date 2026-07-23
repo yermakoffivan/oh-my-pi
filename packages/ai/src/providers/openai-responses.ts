@@ -437,7 +437,18 @@ const streamOpenAIResponsesOnce = (
 			const premiumRequestsTotal = copilotPremiumRequests;
 			const providerSessionState = getOpenAIResponsesProviderSessionState(model, options?.providerSessionState);
 			const strictToolsScope = getOpenAIStrictToolsScope(model, baseUrl);
-			const builtParams = buildParams(model, context, options, providerSessionState, strictToolsScope);
+			if (isOpenAIResponsesStatefulEnabled(options, baseUrl) && routingSessionId && providerSessionState) {
+				chainState = getOpenAIResponsesChainState(providerSessionState, model, baseUrl, routingSessionId);
+			}
+			const builtParams = buildParams(
+				model,
+				context,
+				options,
+				providerSessionState,
+				strictToolsScope,
+				false,
+				chainState?.canAppend === true,
+			);
 			const params = builtParams.params;
 			let activeParams = params;
 			const resolvedBaseUrl = (baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "");
@@ -460,12 +471,9 @@ const streamOpenAIResponsesOnce = (
 				}
 				return fallbackKey;
 			};
-			if (isOpenAIResponsesStatefulEnabled(options, baseUrl) && routingSessionId && providerSessionState) {
-				chainState = getOpenAIResponsesChainState(providerSessionState, model, baseUrl, routingSessionId);
-				if (!chainState.disabled) {
-					// Platform `previous_response_id` chaining only resolves stored responses.
-					params.store = true;
-				}
+			if (chainState && !chainState.disabled) {
+				// Platform `previous_response_id` chaining only resolves stored responses.
+				params.store = true;
 			}
 			applyReasoningEffortFallbackForRequest(params);
 			let chained: OpenAIResponsesChainedParams =
@@ -906,7 +914,10 @@ function isStableStringResponsesInstruction(item: unknown): item is ResponsesStr
 	);
 }
 
-function markEarliestStableResponsesCacheBreakpoint(input: ResponseInput | undefined): boolean {
+function markEarliestStableResponsesCacheBreakpoint(
+	input: ResponseInput | undefined,
+	preserveStatefulPrefix = false,
+): boolean {
 	if (!input) return false;
 	let latestInputMessage = -1;
 	for (let i = input.length - 1; i >= 0; i--) {
@@ -921,10 +932,15 @@ function markEarliestStableResponsesCacheBreakpoint(input: ResponseInput | undef
 
 	// Anchor at the first eligible history block. A stateful turn rebuilds its
 	// full transcript before deriving a delta, so moving this marker toward the
-	// growing tail would make the append baseline appear mutated.
+	// growing tail would make the append baseline appear mutated. If its prior
+	// turn did not have a system/developer prefix, do not introduce a marker on
+	// historical user content now: that content has already been stored.
 	for (let i = 0; i < latestInputMessage; i++) {
 		const message = input[i];
-		if (isResponsesPromptCacheableMessage(message)) {
+		if (
+			isResponsesPromptCacheableMessage(message) &&
+			(!preserveStatefulPrefix || message.role === "developer" || message.role === "system")
+		) {
 			const block = message.content[message.content.length - 1];
 			if (block) {
 				Object.assign(block, { prompt_cache_breakpoint: { mode: "explicit" } });
@@ -950,6 +966,7 @@ function applyOpenAIResponsesPromptCachePolicy(
 	params: OpenAIResponsesSamplingParams,
 	model: Model<"openai-responses">,
 	options: OpenAIResponsesOptions | undefined,
+	preserveStatefulPrefix = false,
 ): void {
 	const promptCache = options?.promptCache;
 	if (!promptCache || resolveCacheRetention(options?.cacheRetention) === "none") return;
@@ -966,7 +983,8 @@ function applyOpenAIResponsesPromptCachePolicy(
 		mode: promptCache.mode,
 		ttl: promptCache.ttl ?? model.compat.promptCacheBreakpointTtl,
 	};
-	if (promptCache.breakpoint !== "none") markEarliestStableResponsesCacheBreakpoint(params.input);
+	if (promptCache.breakpoint !== "none")
+		markEarliestStableResponsesCacheBreakpoint(params.input, preserveStatefulPrefix);
 }
 
 export function buildParams(
@@ -976,6 +994,7 @@ export function buildParams(
 	providerSessionState: OpenAIResponsesProviderSessionState | undefined,
 	strictToolsScope?: OpenAIStrictToolsScope,
 	disableStrictToolsOverride = false,
+	preserveStatefulPrefix = false,
 ): { params: OpenAIResponsesSamplingParams; strictToolsApplied: boolean } {
 	const policy = resolveOpenAICompatPolicy(model, {
 		endpoint: "responses",
@@ -1125,7 +1144,7 @@ export function buildParams(
 	applyOpenAIGatewayRouting(params, model.compat);
 
 	applyOpenAIExtraBody(params, options?.extraBody);
-	applyOpenAIResponsesPromptCachePolicy(params, model, options);
+	applyOpenAIResponsesPromptCachePolicy(params, model, options, preserveStatefulPrefix);
 
 	return { params, strictToolsApplied };
 }
