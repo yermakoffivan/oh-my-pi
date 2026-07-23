@@ -82,7 +82,7 @@ const BedrockCompatSchema = type({
 
 // Provider-level overrides can target bundled models whose API is not repeated
 // in models.yml, so preserve the sparse compat shape for each supported API.
-const ApiCompatSchema = OpenAICompatSchema.or(BedrockCompatSchema);
+const ApiCompatSchema = OpenAICompatSchema.and(BedrockCompatSchema);
 
 const ApiSchema = type(
 	'"openai-completions" | "openai-responses" | "openai-codex-responses" | "azure-openai-responses" | "anthropic-messages" | "bedrock-converse-stream" | "google-generative-ai" | "google-gemini-cli" | "google-vertex"',

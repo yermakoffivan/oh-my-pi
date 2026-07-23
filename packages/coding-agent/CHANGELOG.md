@@ -33,6 +33,8 @@
 
 ### Fixed
 
+- Fixed `models.yml` compatibility validation accepting invalid OpenAI-specific values through the Bedrock schema branch.
+
 - Pinned displaceable transcript snapshots (`hub` waiting polls and live `todo` lists) to the viewport like the `vibe_wait` wall: when the transcript outgrows the terminal, their still-mutating rows are no longer committed to native scrollback on every spinner tick, which previously spammed hundreds of duplicated "waiting on N jobs" rows and force-sealed the poll so follow-up polls stacked instead of replacing it.
 - Fixed a first-use race in `ArtifactManager` where two concurrent `allocatePath`/`save` callers on a fresh instance both re-seeded `#nextId` across the directory-scan yield and allocated the same artifact id, silently overwriting the first artifact (same tool type) or making `artifact://` resolution ambiguous (different tool types). The initial scan is now memoized as a single in-flight promise so all concurrent callers share one initialization and receive distinct ids ([#4091](https://github.com/can1357/oh-my-pi/issues/4091)).
 - Fixed blob reference resolution passing unvalidated `blob:sha256:` suffixes into `path.join`, allowing a crafted ref (e.g. `blob:sha256:../../../etc/passwd`) in a persisted/shared session to escape the blob directory and read arbitrary files into resolved image history; `parseBlobRef` now rejects any suffix that is not a canonical 64-char lowercase hex hash, gating every resolution path ([#4088](https://github.com/can1357/oh-my-pi/issues/4088)).
