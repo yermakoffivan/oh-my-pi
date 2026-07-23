@@ -130,6 +130,11 @@ function collectExtensionSpecifierReferences(
 				record("import", node.source);
 			} else if (node.type === "ImportExpression") {
 				record("import", node.source);
+			} else if (
+				node.type === "TSImportEqualsDeclaration" &&
+				node.moduleReference.type === "TSExternalModuleReference"
+			) {
+				record("require", node.moduleReference.expression);
 			} else if (node.type === "CallExpression") {
 				if (node.callee.type === "Import") {
 					record("import", node.arguments[0]);

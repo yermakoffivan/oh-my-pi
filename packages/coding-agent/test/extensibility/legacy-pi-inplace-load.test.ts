@@ -1094,12 +1094,13 @@ describe("legacy-pi in-place module loading (issue #1674)", () => {
 				'const binding = require("@fixture/native-platform");',
 				'const plain = require("plain-dep");',
 				'const conditional = require("condition-dep");',
+				'import conditionalEquals = require("condition-dep");',
 				'const local = require("./local.node");',
 				'const member = loader.require("plain-dep");',
 				'const importText = `from"plain-dep"`;',
 				'const importPattern = /from"typebox"/;',
 				'function shadowed(require) { return require("plain-dep"); }',
-				"export { binding, conditional, importPattern, importText, local, member, plain, shadowed };",
+				"export { binding, conditional, conditionalEquals, importPattern, importText, local, member, plain, shadowed };",
 			].join("\n"),
 			importer,
 		);
@@ -1110,6 +1111,7 @@ describe("legacy-pi in-place module loading (issue #1674)", () => {
 		expect(rewritten).toContain(`require("${addon.replaceAll("\\", "/")}")`);
 		expect(rewritten).toContain(`require("${plainDep.replaceAll("\\", "/")}")`);
 		expect(rewritten).toContain(`require("${conditionalDep.replaceAll("\\", "/")}")`);
+		expect(rewritten).toContain(`import conditionalEquals = require("${conditionalDep.replaceAll("\\", "/")}")`);
 		expect(rewritten).toContain('require("./local.node")');
 		expect(rewritten).toContain('loader.require("plain-dep")');
 		expect(rewritten).toContain('`from"plain-dep"`');
