@@ -162,7 +162,7 @@ Before each coordinate action, native code re-enumerates displays and compares I
 | `win32-x64` | Real `DesktopSession` in core addon: xcap, native input, `SendInput` absolute movement over the virtual desktop. |
 | Other targets | Native package loader rejects unsupported platform tag. |
 
-Wayland detection wins when `XDG_SESSION_TYPE=wayland` or `WAYLAND_DISPLAY` is set. Capture still requires `DISPLAY` because xcap 0.9.7 uses XWayland. Linux input first verifies the session bus and `org.freedesktop.portal.Desktop`, then initializes Enigo/libei without asking OMP to open a permission prompt. Coordinate input rejects Wayland frames containing more than one selected display.
+Wayland detection wins when `XDG_SESSION_TYPE=wayland` or `WAYLAND_DISPLAY` is set. Capture still requires `DISPLAY` because xcap 0.9.6 uses XWayland. Linux input first verifies the session bus and `org.freedesktop.portal.Desktop`, then initializes Enigo/libei without asking OMP to open a permission prompt. Coordinate input rejects Wayland frames containing more than one selected display.
 
 macOS capture calls `CGPreflightScreenCaptureAccess()` without prompting. Input creation also disables automatic permission prompts. Windows sets DPI awareness and maps pointer coordinates with `MOUSEEVENTF_VIRTUALDESK`, supporting negative origins and secondary displays.
 

@@ -870,7 +870,7 @@ impl DesktopWorker {
 		if backend == ConcreteBackend::Wayland && std::env::var_os("DISPLAY").is_none() {
 			let error = DesktopError::new(
 				ErrorCode::BackendUnavailable,
-				"Wayland capture through xcap 0.9.7 requires an active XWayland DISPLAY; pure Wayland \
+				"Wayland capture through xcap 0.9.6 requires an active XWayland DISPLAY; pure Wayland \
 				 capture is unavailable",
 			);
 			self.record_capture_failure(&error);

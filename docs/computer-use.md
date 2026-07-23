@@ -274,7 +274,7 @@ Computer backend errors begin with a stable code:
 
 Common exact failures:
 
-- `Wayland capture through xcap 0.9.7 requires an active XWayland DISPLAY; pure Wayland capture is unavailable` → enable XWayland or use X11.
+- `Wayland capture through xcap 0.9.6 requires an active XWayland DISPLAY; pure Wayland capture is unavailable` → enable XWayland or use X11.
 - `Wayland/libei absolute input cannot safely correlate a multi-display XWayland composite` → set a single display or use X11.
 - `org.freedesktop.portal.Desktop is not available for native libei input` → start/install the desktop portal in the same user session.
 - `macOS Screen Recording permission is not granted for this process` → grant the launching host Screen Recording and restart it.

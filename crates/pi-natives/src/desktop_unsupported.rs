@@ -17,7 +17,7 @@ use crate::task;
 
 #[cfg(target_env = "musl")]
 const UNSUPPORTED: &str = "DESKTOP_BACKEND_UNAVAILABLE: native desktop capture/input is \
-                           unavailable in the Linux musl build because xcap 0.9.7 requires \
+                           unavailable in the Linux musl build because xcap 0.9.6 requires \
                            dynamically linked graphical-session libraries; use a Linux glibc \
                            native-desktop build";
 
