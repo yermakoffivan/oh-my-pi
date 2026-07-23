@@ -3678,12 +3678,26 @@ export class AgentSession {
 			try {
 				const candidateHealth = await this.#modelRegistry.authStorage.getModelUsageHealth(candidateModel.provider, {
 					modelId: candidateModel.id,
+					sessionId: this.sessionId,
 					baseUrl: candidateModel.baseUrl,
 					reserveFraction: this.settings.get("retry.usageReservePct") / 100,
 					signal,
 				});
 				if (signal.aborted) return;
 				if (candidateHealth.state === "depleted" || candidateHealth.state === "reserve") continue;
+				if (candidateHealth.state === "healthy") {
+					const selected = candidateHealth.accounts.find(account => account.selected);
+					if (
+						selected &&
+						selected.state !== "healthy" &&
+						candidateHealth.accounts.some(account => account.state === "healthy")
+					) {
+						this.#modelRegistry.authStorage.releaseSessionCredentialForReselection(
+							candidateModel.provider,
+							this.sessionId,
+						);
+					}
+				}
 			} catch {
 				if (signal.aborted) return;
 				// Unknown usage fails open for an otherwise valid fallback.
