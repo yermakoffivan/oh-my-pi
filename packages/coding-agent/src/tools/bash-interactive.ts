@@ -32,6 +32,10 @@ function normalizeCaptureChunk(chunk: string): string {
 	return sanitizeWithOptionalSixelPassthrough(normalized, sanitizeText);
 }
 
+// Caps only the live xterm display backlog; OutputSink remains the bounded
+// source of truth for the final captured output.
+const MAX_LIVE_WRITE_QUEUE_CHUNKS = 512;
+
 // @xterm/headless is only needed once an interactive PTY session actually starts,
 // so it is loaded lazily (and memoized) instead of weighing down CLI startup.
 let xtermTerminalCtor: typeof XtermModule.Terminal | undefined;
@@ -142,7 +146,15 @@ class BashInteractiveOverlayComponent implements Component {
 
 	appendOutput(chunk: string): void {
 		this.#writeQueue.push(chunk);
+		this.#trimWriteQueue();
 		this.#drainQueue();
+	}
+
+	#trimWriteQueue(): void {
+		const firstPending = this.#writing ? this.#writeOffset + 1 : this.#writeOffset;
+		while (this.#writeQueue.length - firstPending > MAX_LIVE_WRITE_QUEUE_CHUNKS) {
+			this.#writeQueue.splice(firstPending, 1);
+		}
 	}
 
 	#drainQueue(): void {
