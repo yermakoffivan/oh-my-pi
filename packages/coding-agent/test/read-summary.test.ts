@@ -100,16 +100,24 @@ describe("read summary", () => {
 		expect(proseResult.details?.summary?.elidedSpans).toBe(1);
 	});
 
-	it("marks local Markdown-like extensions as markdown while preserving model-facing source text", async () => {
+	it("marks local Markdown-like extensions as markdown only when previews are enabled", async () => {
 		const markdown = "# Heading\n\nSome **bold** text.\n";
 		const extensions = ["md", "markdown", "mdx", "mdc", "mkd", "mdown"] as const;
-		const tool = new ReadTool(createSession(tmpDir));
+		const defaultTool = new ReadTool(createSession(tmpDir));
+		const previewTool = new ReadTool(createSession(tmpDir, { "read.renderMarkdown": true }));
 
 		for (const extension of extensions) {
 			const fixture = path.join(tmpDir, `fixture.${extension}`);
 			await fs.writeFile(fixture, markdown);
 
-			const result = await tool.execute(`read-summary-markdown-${extension}`, { path: fixture });
+			// Default (setting off): no markdown tagging, byte-identical to the pre-setting behavior.
+			const defaultResult = await defaultTool.execute(`read-summary-markdown-default-${extension}`, {
+				path: fixture,
+			});
+			expect(defaultResult.details?.contentType).toBeUndefined();
+
+			// Opt-in: tagged for the TUI preview while the model-facing text stays verbatim.
+			const result = await previewTool.execute(`read-summary-markdown-${extension}`, { path: fixture });
 			const text = textOutput(result);
 
 			expect(result.details?.contentType).toBe("text/markdown");
@@ -118,6 +126,19 @@ describe("read summary", () => {
 			expect(text).toContain("1:# Heading");
 			expect(text).toContain("3:Some **bold** text.");
 		}
+	});
+
+	it("keeps non-.md markdown flavors verbatim when prose summaries are disabled", async () => {
+		const fixture = path.join(tmpDir, "fixture.mdx");
+		await fs.writeFile(
+			fixture,
+			"# Heading\n\nIntro line.\n\n```ts\nexport function alpha(): string {\n\tconst clean = 'alpha';\n\treturn clean;\n}\n```\n\nMore prose.\n",
+		);
+
+		const tool = new ReadTool(createSession(tmpDir));
+		const result = await tool.execute("read-summary-mdx-default", { path: fixture });
+		expect(textOutput(result)).toContain("const clean = 'alpha';");
+		expect(result.details?.summary).toBeUndefined();
 	});
 
 	it("does not truncate summarized output", async () => {

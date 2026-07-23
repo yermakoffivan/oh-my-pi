@@ -1344,6 +1344,10 @@
 - Fixed Ruff LSP auto-detection for Windows Python virtualenvs by checking `.venv/Scripts`, `venv/Scripts`, and `.env/Scripts` before falling back to PATH. ([#3916](https://github.com/can1357/oh-my-pi/issues/3916))
 - Added the opt-in `read.renderMarkdown` setting for formatted Markdown read previews, disabled by default.
 
+### Changed
+
+- All Markdown flavors (`.markdown`, `.mdx`, `.mdc`, `.mkd`, `.mdown`) now follow the `read.summarize.prose` setting like `.md`, so they read verbatim instead of being code-block summarized when prose summaries are off.
+
 ### Fixed
 
 - Fixed Markdown file read metadata so the opt-in Markdown preview renderer can recognize local and URI-backed Markdown files consistently.

@@ -25,7 +25,6 @@ import {
 } from "@oh-my-pi/pi-utils";
 import { type } from "arktype";
 import { LRUCache } from "lru-cache/raw";
-import { isSettingsInitialized, settings } from "../config/settings";
 import {
 	canonicalSnapshotKey,
 	getFileSnapshotStore,
@@ -156,19 +155,11 @@ const MAX_SUMMARY_BYTES = 2 * 1024 * 1024;
 const MAX_SUMMARY_LINES = 20_000;
 const MAX_ARTIFACT_RAW_INLINE_BYTES = DEFAULT_MAX_BYTES;
 /**
- * Per-line column cap for file reads. Lines wider than the value of
- * `tools.outputMaxColumns` are ellipsis-truncated at display time; the file
- * on disk is unchanged. Shared with the streaming sink path so one setting
- * covers `bash`/`ssh`/`python`/`js eval` and `read` uniformly.
+ * Prose files (Markdown flavors and plain text) skip code-block summarization
+ * unless `read.summarize.prose` opts them in.
  */
-const PROSE_SUMMARY_EXTENSIONS = new Set([".txt"]);
-
-function isMarkdownContentPath(filePath: string): boolean {
-	return isMarkdownPath(filePath);
-}
-
 function isProseSummaryPath(filePath: string): boolean {
-	return isMarkdownContentPath(filePath) || PROSE_SUMMARY_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+	return isMarkdownPath(filePath) || path.extname(filePath).toLowerCase() === ".txt";
 }
 
 // Remote mount path prefix (sshfs mounts) - skip fuzzy matching to avoid hangs
@@ -789,14 +780,6 @@ export interface ReadToolDetails {
 	/** Paths recovered from a delimited read argument; used only by the TUI to render one call as multiple read rows. */
 	displayReadTargets?: string[];
 }
-
-function markMarkdownContentType(details: ReadToolDetails, filePath: string): ReadToolDetails {
-	if (!details.contentType && isMarkdownContentPath(filePath)) {
-		details.contentType = "text/markdown";
-	}
-	return details;
-}
-
 type ReadParams = ReadToolInput;
 
 /** Parsed representation of a path-embedded selector. */
@@ -1615,7 +1598,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 			try {
 				const bridgeText = await bridgePromise;
 				const bridgeResult = this.#buildInMemoryMultiRangeResult(bridgeText, ranges, {
-					details: markMarkdownContentType({ resolvedPath: absolutePath, suffixResolution }, absolutePath),
+					details: this.#markMarkdownContentType({ resolvedPath: absolutePath, suffixResolution }, absolutePath),
 					sourcePath: absolutePath,
 					entityLabel: "file",
 					raw: rawSelector,
@@ -1798,7 +1781,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 		const archive = await openArchive(resolvedArchivePath.absolutePath);
 		throwIfAborted(signal);
 
-		const details: ReadToolDetails = markMarkdownContentType(
+		const details: ReadToolDetails = this.#markMarkdownContentType(
 			{
 				resolvedPath: resolvedArchivePath.absolutePath,
 				suffixResolution: resolvedArchivePath.suffixResolution,
@@ -2013,6 +1996,20 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 		const bridge = this.session.getClientBridge?.();
 		if (!bridge?.capabilities.readTextFile || !bridge.readTextFile) return undefined;
 		return bridge.readTextFile({ path: absolutePath, ...options });
+	}
+
+	/**
+	 * Tag Markdown reads for the TUI's formatted preview, gated on the opt-in
+	 * `read.renderMarkdown` setting. Off by default; when disabled, no local
+	 * read is tagged `text/markdown`, so the renderer output is identical to
+	 * the pre-setting behavior. Internal-URL reads keep their protocol-supplied
+	 * `contentType` and render as Markdown regardless of the setting.
+	 */
+	#markMarkdownContentType(details: ReadToolDetails, filePath: string): ReadToolDetails {
+		if (!details.contentType && this.session.settings.get("read.renderMarkdown") && isMarkdownPath(filePath)) {
+			details.contentType = "text/markdown";
+		}
+		return details;
 	}
 
 	async #trySummarize(absolutePath: string, fileSize: number, signal?: AbortSignal): Promise<SummaryResult | null> {
@@ -2439,14 +2436,20 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 				// because only `truncateHead` was being applied.
 				if (isMultiRange(parsed) && parsed.kind === "lines") {
 					return this.#buildInMemoryMultiRangeResult(renderedContent, parsed.ranges, {
-						details: { resolvedPath: absolutePath, contentType: "text/markdown" },
+						details: {
+							resolvedPath: absolutePath,
+							contentType: this.session.settings.get("read.renderMarkdown") ? "text/markdown" : undefined,
+						},
 						sourcePath: absolutePath,
 						entityLabel: "document",
 					});
 				}
 				const { offset, limit } = selToOffsetLimit(parsed);
 				return this.#buildInMemoryTextResult(renderedContent, offset, limit, {
-					details: { resolvedPath: absolutePath, contentType: "text/markdown" },
+					details: {
+						resolvedPath: absolutePath,
+						contentType: this.session.settings.get("read.renderMarkdown") ? "text/markdown" : undefined,
+					},
 					sourcePath: absolutePath,
 					entityLabel: "document",
 					raw: isRawSelector(parsed),
@@ -2539,7 +2542,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 						try {
 							const bridgeText = await bridgePromise;
 							const bridgeResult = this.#buildInMemoryTextResult(bridgeText, offset, limit, {
-								details: markMarkdownContentType(
+								details: this.#markMarkdownContentType(
 									{ resolvedPath: absolutePath, suffixResolution },
 									absolutePath,
 								),
@@ -2841,7 +2844,7 @@ export class ReadTool implements AgentTool<typeof readSchema, ReadToolDetails> {
 			}
 		}
 
-		markMarkdownContentType(details, absolutePath);
+		this.#markMarkdownContentType(details, absolutePath);
 		if (suffixResolution) {
 			details.suffixResolution = suffixResolution;
 			// Inline resolution notice into first text block so the model sees the actual path
@@ -3575,8 +3578,7 @@ export const readToolRenderer = {
 			title += ` ${uiTheme.fg("warning", `(⚠ ${n} conflict${n === 1 ? "" : "s"})`)}`;
 		}
 		const rawRequested = args?.raw === true || isRawSelector(parseSel(renderPath.sel));
-		const markdownPreviewEnabled = isSettingsInitialized() && settings.get("read.renderMarkdown");
-		const isMarkdown = markdownPreviewEnabled && details?.contentType === "text/markdown" && !rawRequested;
+		const isMarkdown = details?.contentType === "text/markdown" && !rawRequested;
 		let cachedWidth: number | undefined;
 		let cachedExpanded: boolean | undefined;
 		let cachedLines: string[] | undefined;
