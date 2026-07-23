@@ -1260,7 +1260,7 @@ describe("ExtensionRunner", () => {
 				}
 			`;
 			const explicitExtensionPath = path.join(tempDir.path(), "service-tiers.ts");
-			fs.writeFileSync(explicitExtensionPath, extCode);
+			await Bun.write(explicitExtensionPath, extCode);
 			const result = await loadTestExtensions([explicitExtensionPath]);
 			const runner = new ExtensionRunner(
 				result.extensions,
