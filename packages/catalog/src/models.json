@@ -34656,6 +34656,42 @@
 			}
 		}
 	},
+	"meta": {
+		"muse-spark-1.1": {
+			"id": "muse-spark-1.1",
+			"name": "Muse Spark 1.1",
+			"api": "openai-responses",
+			"provider": "meta",
+			"baseUrl": "https://api.meta.ai/v1",
+			"reasoning": true,
+			"input": [
+				"text",
+				"image"
+			],
+			"cost": {
+				"input": 1.25,
+				"output": 4.25,
+				"cacheRead": 0.15,
+				"cacheWrite": 0
+			},
+			"contextWindow": 1048576,
+			"maxTokens": 131072,
+			"thinking": {
+				"mode": "effort",
+				"efforts": [
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh"
+				]
+			},
+			"compat": {
+				"supportsReasoningEffort": true,
+				"includeEncryptedReasoning": true
+			}
+		}
+	},
 	"minimax": {
 		"MiniMax-M2": {
 			"id": "MiniMax-M2",

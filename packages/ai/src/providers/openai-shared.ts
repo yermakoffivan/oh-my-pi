@@ -1069,6 +1069,20 @@ export function resolveOpenAICompletionsOutputClamp(
 }
 
 /**
+ * Provider-specific Responses API output clamp.
+ *
+ * Meta documents a 131,072-token output limit for Muse Spark 1.1, so native
+ * Meta requests may use the model's full advertised cap instead of the
+ * conservative 64k OpenAI-compatible default.
+ */
+export function resolveOpenAIResponsesOutputClamp(model: Pick<Model, "provider" | "maxTokens">): number | undefined {
+	if (model.provider === "meta") {
+		return model.maxTokens ?? OPENAI_MAX_OUTPUT_TOKENS;
+	}
+	return undefined;
+}
+
+/**
  * Enable `tool_stream` for Z.AI/GLM-5.2 reasoning models when tools are present
  * (GLM-5.2 streams tool-call arguments incrementally and needs the flag to do so).
  */
@@ -2849,7 +2863,7 @@ export function applyCommonResponsesSamplingParams<P extends CommonResponsesPara
 		params.max_output_tokens = Math.min(
 			options.maxTokens,
 			model.maxTokens ?? Number.POSITIVE_INFINITY,
-			OPENAI_MAX_OUTPUT_TOKENS,
+			resolveOpenAIResponsesOutputClamp(model) ?? OPENAI_MAX_OUTPUT_TOKENS,
 		);
 	}
 	// OpenAI proprietary reasoning models (o-series, gpt-5+) reject explicit
