@@ -6,6 +6,10 @@
 
 - Queued steering no longer hard-aborts non-interruptible tools (e.g. `bash`): it aborts interruptible waits only and raises a cooperative steering signal (`ToolCallContext.steeringSignal`) that long-running tools may observe to finish early or background themselves. The mid-batch steering/IRC watch now runs for every tool batch instead of only batches containing an interruptible tool.
 
+### Fixed
+
+- Fixed an unbounded allocation loop when a steer (or follow-up) was queued on a session with an empty transcript: `Agent.continue()` now delivers the queued message as the opening turn instead of throwing, so idle-drain callers no longer respin `continue()` on every microtask until OOM ([#6344](https://github.com/can1357/oh-my-pi/issues/6344)).
+
 ## [17.0.8] - 2026-07-22
 
 ### Fixed
