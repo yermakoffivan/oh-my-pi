@@ -598,7 +598,7 @@ export function resolveOpenAIOutputTokenParam(
 
 export interface OpenAIGatewayRoutingParams {
 	provider?: OpenRouterRouting;
-	providerOptions?: { gateway?: { only?: string[]; order?: string[] } };
+	providerOptions?: { gateway?: Pick<VercelGatewayRouting, "only" | "order" | "caching"> };
 }
 
 export interface OpenAIGatewayRoutingCompat {
@@ -610,10 +610,8 @@ export interface OpenAIGatewayRoutingCompat {
 
 /**
  * Apply gateway routing preferences to the request body. OpenRouter routes via
- * the top-level `provider` field; the Vercel AI Gateway routes via
- * `providerOptions.gateway`. Both Chat Completions and Responses call this; the
- * Vercel branch is inert for Responses, whose resolved compat never sets
- * `isVercelGatewayHost`.
+ * the top-level `provider` field; the Vercel AI Gateway routes Chat
+ * Completions through `providerOptions.gateway`.
  */
 export function applyOpenAIGatewayRouting(
 	params: OpenAIGatewayRoutingParams,
@@ -624,10 +622,11 @@ export function applyOpenAIGatewayRouting(
 	}
 	if (compat.isVercelGatewayHost && compat.vercelGatewayRouting) {
 		const routing = compat.vercelGatewayRouting;
-		if (routing.only || routing.order) {
-			const gatewayOptions: { only?: string[]; order?: string[] } = {};
+		if (routing.only || routing.order || routing.caching) {
+			const gatewayOptions: Pick<VercelGatewayRouting, "only" | "order" | "caching"> = {};
 			if (routing.only) gatewayOptions.only = routing.only;
 			if (routing.order) gatewayOptions.order = routing.order;
+			if (routing.caching) gatewayOptions.caching = routing.caching;
 			params.providerOptions = { gateway: gatewayOptions };
 		}
 	}

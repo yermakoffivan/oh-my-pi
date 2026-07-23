@@ -481,6 +481,8 @@ export interface VercelGatewayRouting {
 	only?: string[];
 	/** List of provider slugs to try in order (e.g., ["anthropic", "openai"]). */
 	order?: string[];
+	/** Enables Vercel AI Gateway's provider-aware automatic prompt caching. */
+	caching?: "auto";
 }
 
 type ResolvedToolStrictMode = NonNullable<OpenAICompat["toolStrictMode"]> | "mixed";
