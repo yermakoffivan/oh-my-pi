@@ -16,7 +16,7 @@ import type {
 import { resolveModelServiceTier, streamSimple } from "@oh-my-pi/pi-ai";
 import { buildModelProviderPriorityRank } from "@oh-my-pi/pi-catalog/identity";
 import { replaceTabs, truncateToWidth } from "@oh-my-pi/pi-tui";
-import { formatDuration, getProjectDir } from "@oh-my-pi/pi-utils";
+import { formatDuration, getProjectDir, prompt } from "@oh-my-pi/pi-utils";
 import chalk from "chalk";
 import type { ApiKeyResolverModel } from "../config/api-key-resolver";
 import { ModelRegistry } from "../config/model-registry";
@@ -28,6 +28,9 @@ import {
 } from "../config/model-resolver";
 import { buildServiceTierByFamily, serviceTierForAllFamilies, serviceTierSettingToTier } from "../config/service-tier";
 import { Settings } from "../config/settings";
+import cachePrefixTemplate from "../prompts/bench/cache-prefix.md" with { type: "text" };
+import cachePrefixChunk from "../prompts/bench/cache-prefix-chunk.md" with { type: "text" };
+import cacheSuffixTemplate from "../prompts/bench/cache-suffix.md" with { type: "text" };
 import benchPrompt from "../prompts/bench.md" with { type: "text" };
 import { discoverAuthStorage, loadCliExtensionProviders } from "../sdk";
 import {
@@ -46,7 +49,10 @@ const DEFAULT_CACHE_PAIRS = 1;
 const DEFAULT_CACHE_CONCURRENCY = 1;
 const ERROR_WIDTH = 110;
 const BENCH_PROMPT = benchPrompt.trim();
-const CACHE_PREFIX_CHUNK = "Prompt-cache benchmark stable prefix. ";
+const UTF8_ENCODER = new TextEncoder();
+const UTF8_DECODER = new TextDecoder();
+const CACHE_PREFIX_CHUNK = cachePrefixChunk;
+const CACHE_PREFIX_CHUNK_BYTES = UTF8_ENCODER.encode(CACHE_PREFIX_CHUNK).byteLength;
 const RESPONSE_CACHE_STATUS_HEADERS = ["cf-aig-cache-status"] as const;
 
 export interface BenchCommandArgs {
@@ -297,16 +303,42 @@ function cacheRunReport(
 	};
 }
 
+function truncateUtf8ByteLength(bytes: Uint8Array, maxBytes: number): number {
+	const end = Math.min(bytes.byteLength, maxBytes);
+	if (end === 0) return 0;
+
+	let sequenceStart = end - 1;
+	while (sequenceStart > 0 && (bytes[sequenceStart]! & 0b1100_0000) === 0b1000_0000) sequenceStart--;
+
+	const leadingByte = bytes[sequenceStart]!;
+	const sequenceLength =
+		leadingByte <= 0b0111_1111
+			? 1
+			: leadingByte >= 0b1100_0010 && leadingByte <= 0b1101_1111
+				? 2
+				: leadingByte >= 0b1110_0000 && leadingByte <= 0b1110_1111
+					? 3
+					: leadingByte >= 0b1111_0000 && leadingByte <= 0b1111_0100
+						? 4
+						: 1;
+	return sequenceLength > end - sequenceStart ? sequenceStart : end;
+}
+
+async function readBoundedUtf8File(path: string, maxBytes: number): Promise<string> {
+	const file = Bun.file(path);
+	const bytes = new Uint8Array(await file.slice(0, maxBytes).arrayBuffer());
+	const end = truncateUtf8ByteLength(bytes, maxBytes);
+	return UTF8_DECODER.decode(bytes.subarray(0, end));
+}
+
 function truncateUtf8(text: string, maxBytes: number): string {
-	const bytes = new TextEncoder().encode(text);
-	if (bytes.length <= maxBytes) return text;
-	let end = maxBytes;
-	while (end > 0 && (bytes[end]! & 0b1100_0000) === 0b1000_0000) end--;
-	return new TextDecoder().decode(bytes.slice(0, end));
+	const bytes = UTF8_ENCODER.encode(text);
+	const end = truncateUtf8ByteLength(bytes, maxBytes);
+	return end === bytes.byteLength ? text : UTF8_DECODER.decode(bytes.subarray(0, end));
 }
 
 function generatedCachePrefix(bytes: number): string {
-	return CACHE_PREFIX_CHUNK.repeat(Math.ceil(bytes / CACHE_PREFIX_CHUNK.length)).slice(0, bytes);
+	return truncateUtf8(CACHE_PREFIX_CHUNK.repeat(Math.ceil(bytes / CACHE_PREFIX_CHUNK_BYTES)), bytes);
 }
 
 async function resolveCachePrefix(
@@ -345,11 +377,20 @@ async function runWithConcurrency<T>(
 	return results;
 }
 
+function formatCacheCost(cost: number): string {
+	if (cost < 0.01) return `$${cost.toFixed(4)}`;
+	if (cost < 1) return `$${cost.toFixed(3)}`;
+	return `$${cost.toFixed(2)}`;
+}
+
 function formatCachePairLine(pair: BenchCachePairReport, index: number, total: number): string {
-	const formatPhase = (run: BenchCacheRunReport, alreadyWarm = false) =>
-		run.result.ok
-			? `${run.phase}${alreadyWarm ? " (already warm)" : ""} ${run.observations.join(", ")} ${chalk.dim("TTFT")} ${formatMs(run.result.ttftMs)} ${chalk.dim("duration")} ${formatMs(run.result.durationMs)} ${chalk.dim("tokens")} ${run.result.outputTokens} ${chalk.dim("throughput")} ${run.result.tokensPerSecond.toFixed(1)}/s`
-			: `${run.phase} failed: ${truncateToWidth(replaceTabs(run.result.error), ERROR_WIDTH)}`;
+	const formatPhase = (run: BenchCacheRunReport, alreadyWarm = false) => {
+		if (!run.result.ok) {
+			return `${run.phase} failed: ${truncateToWidth(replaceTabs(run.result.error), ERROR_WIDTH)}`;
+		}
+		const usage = run.usage;
+		return `${run.phase}${alreadyWarm ? " (already warm)" : ""} ${run.observations.join(", ")} ${chalk.dim("input")} ${usage?.inputTokens ?? 0} ${chalk.dim("cache-read")} ${usage?.cacheReadTokens ?? 0} ${chalk.dim("cache-write")} ${usage?.cacheWriteTokens ?? 0} ${chalk.dim("output")} ${usage?.outputTokens ?? run.result.outputTokens} ${chalk.dim("total")} ${usage?.totalTokens ?? 0} ${chalk.dim("cost")} ${formatCacheCost(usage?.cost ?? 0)} ${chalk.dim("TTFT")} ${formatMs(run.result.ttftMs)} ${chalk.dim("duration")} ${formatMs(run.result.durationMs)} ${chalk.dim("throughput")} ${run.result.tokensPerSecond.toFixed(1)}/s`;
+	};
 	return `  ${chalk.dim(`pair ${index + 1}/${total}`)} ${formatPhase(pair.cold, pair.coldAlreadyWarm)}; ${formatPhase(pair.warm)}`;
 }
 
@@ -710,10 +751,10 @@ export async function runBenchCommand(command: BenchCommandArgs, deps: BenchDepe
 	);
 	const par =
 		command.flags.par !== undefined ? normalizePositiveInteger("par", command.flags.par, DEFAULT_PAR) : DEFAULT_PAR;
-	const prompt = command.flags.prompt?.trim() || BENCH_PROMPT;
+	const benchmarkPrompt = command.flags.prompt?.trim() || BENCH_PROMPT;
 	const json = command.flags.json === true;
 	const randomSessionId = deps.randomSessionId ?? (() => Bun.randomUUIDv7());
-	const readTextFile = deps.readTextFile ?? ((path, maxBytes) => Bun.file(path).slice(0, maxBytes).text());
+	const readTextFile = deps.readTextFile ?? readBoundedUtf8File;
 	const cachePrefix = cacheMode ? await resolveCachePrefix(command.flags, readTextFile) : undefined;
 	const writeStdout = deps.writeStdout ?? ((text: string) => process.stdout.write(text));
 	const writeStderr = deps.writeStderr ?? ((text: string) => process.stderr.write(text));
@@ -780,7 +821,11 @@ export async function runBenchCommand(command: BenchCommandArgs, deps: BenchDepe
 					async (pairIndex): Promise<BenchCachePairReport> => {
 						const cacheNamespace = randomSessionId();
 						const promptCacheKey = `bench-cache:${cacheNamespace}`;
-						const stablePrefix = `${cachePrefix}\n\nPrompt-cache benchmark namespace: ${cacheNamespace}.`;
+						const stablePrefix = prompt
+							.render(cachePrefixTemplate, { prefix: cachePrefix!, namespace: cacheNamespace })
+							.trimEnd();
+						const coldSuffix = prompt.render(cacheSuffixTemplate, { variant: "A" }).trim();
+						const warmSuffix = prompt.render(cacheSuffixTemplate, { variant: "B" }).trim();
 						const coldCapture: CacheRequestCapture = {
 							requestIdObserved: false,
 							responseCacheHit: false,
@@ -795,8 +840,8 @@ export async function runBenchCommand(command: BenchCommandArgs, deps: BenchDepe
 							{
 								apiKey: credentialResolver,
 								sessionId: credentialAffinitySessionId,
-								prompt: "Cache benchmark suffix A.",
-								contextMessages: cacheBenchmarkMessages(stablePrefix, "Cache benchmark suffix A."),
+								prompt: coldSuffix,
+								contextMessages: cacheBenchmarkMessages(stablePrefix, coldSuffix),
 								maxTokens,
 								reasoning: toReasoningEffort(thinking),
 								disableReasoning: shouldDisableReasoning(thinking) ? true : undefined,
@@ -817,8 +862,8 @@ export async function runBenchCommand(command: BenchCommandArgs, deps: BenchDepe
 							{
 								apiKey: credentialResolver,
 								sessionId: credentialAffinitySessionId,
-								prompt: "Cache benchmark suffix B.",
-								contextMessages: cacheBenchmarkMessages(stablePrefix, "Cache benchmark suffix B."),
+								prompt: warmSuffix,
+								contextMessages: cacheBenchmarkMessages(stablePrefix, warmSuffix),
 								maxTokens,
 								reasoning: toReasoningEffort(thinking),
 								disableReasoning: shouldDisableReasoning(thinking) ? true : undefined,
@@ -868,7 +913,7 @@ export async function runBenchCommand(command: BenchCommandArgs, deps: BenchDepe
 					{
 						apiKey: runtime.modelRegistry.resolver(model, sessionId),
 						sessionId,
-						prompt,
+						prompt: benchmarkPrompt,
 						maxTokens,
 						reasoning: toReasoningEffort(thinking),
 						disableReasoning: shouldDisableReasoning(thinking) ? true : undefined,

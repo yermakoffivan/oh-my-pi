@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import type {
 	Api,
 	ApiKeyResolver,
@@ -250,8 +253,97 @@ describe("bench cache mode", () => {
 		expect(stdout).toContain("cold (already warm)");
 	});
 
-	it("prints cache pair TTFT, duration, tokens, and throughput for human output", async () => {
+	it("overlaps cache cold requests while preserving phase ordering and pair affinity", async () => {
+		const calls: Array<{
+			phase: "cold" | "warm";
+			cacheKey: string;
+			sessionId: SimpleStreamOptions["sessionId"];
+			apiKey: SimpleStreamOptions["apiKey"];
+			stablePrefix: string;
+		}> = [];
+		const coldCompleted = new Set<string>();
+		const bothColdsStarted = Promise.withResolvers<void>();
+		const releaseColds = Promise.withResolvers<void>();
+		let coldInFlight = 0;
+		let maxColdInFlight = 0;
+		let id = 0;
+		const benchmark = runBenchCommand(
+			{
+				models: ["openai/gpt-cache-test"],
+				flags: { cache: true, cachePairs: 2, cacheConcurrency: 2, json: true },
+			},
+			{
+				createRuntime: async () => ({ modelRegistry: registry, close: () => {} }),
+				randomSessionId: () => `session-${++id}`,
+				writeStdout: () => {},
+				writeStderr: () => {},
+				setExitCode: () => {},
+				streamSimple: (_model, context, options) => {
+					if (!options?.promptCacheKey) throw new Error("cache requests must have a prompt cache key");
+					const cacheKey = options.promptCacheKey;
+					const phase = context.messages[1]?.content === "Cache benchmark suffix B." ? "warm" : "cold";
+					calls.push({
+						phase,
+						cacheKey,
+						sessionId: options.sessionId,
+						apiKey: options.apiKey,
+						stablePrefix: context.messages[0]?.content as string,
+					});
+					const message = successfulMessage(phase === "warm" ? 100 : 0, phase === "cold" ? 100 : 0);
+					const iterator = (async function* () {
+						if (phase === "cold") {
+							coldInFlight++;
+							maxColdInFlight = Math.max(maxColdInFlight, coldInFlight);
+							if (coldInFlight === 2) bothColdsStarted.resolve();
+							await releaseColds.promise;
+							coldInFlight--;
+							yield { type: "text_delta", delta: "ok" } as unknown as AssistantMessageEvent;
+							yield { type: "done", message } as unknown as AssistantMessageEvent;
+							coldCompleted.add(cacheKey);
+							return;
+						}
+						expect(coldCompleted.has(cacheKey)).toBe(true);
+						yield { type: "text_delta", delta: "ok" } as unknown as AssistantMessageEvent;
+						yield { type: "done", message } as unknown as AssistantMessageEvent;
+					})();
+					return Object.assign(iterator, {
+						result: async () => message,
+					}) as unknown as AssistantMessageEventStream;
+				},
+				stdoutIsTTY: false,
+			},
+		);
+
+		await bothColdsStarted.promise;
+		releaseColds.resolve();
+		const summary = await benchmark;
+
+		expect(maxColdInFlight).toBe(2);
+		expect(summary.cache).toEqual({ pairs: 2, concurrency: 2 });
+		expect(calls).toHaveLength(4);
+		const callsByKey = new Map<string, (typeof calls)[number][]>();
+		for (const call of calls) {
+			const pair = callsByKey.get(call.cacheKey) ?? [];
+			pair.push(call);
+			callsByKey.set(call.cacheKey, pair);
+		}
+		expect(callsByKey.size).toBe(2);
+		for (const pair of callsByKey.values()) {
+			const cold = pair.find(call => call.phase === "cold");
+			const warm = pair.find(call => call.phase === "warm");
+			expect(cold).toBeDefined();
+			expect(warm).toBeDefined();
+			expect(warm?.sessionId).toBe(cold?.sessionId);
+			expect(warm?.apiKey).toBe(cold?.apiKey);
+			expect(warm?.stablePrefix).toBe(cold?.stablePrefix);
+		}
+		const coldPrefixes = calls.filter(call => call.phase === "cold").map(call => call.stablePrefix);
+		expect(new Set(coldPrefixes).size).toBe(2);
+	});
+
+	it("prints cold and warm cache token breakdowns and cost for human output", async () => {
 		let stdout = "";
+		let calls = 0;
 		await runBenchCommand(
 			{ models: ["openai/gpt-cache-test"], flags: { cache: true } },
 			{
@@ -266,16 +358,22 @@ describe("bench cache mode", () => {
 				writeStderr: () => {},
 				setExitCode: () => {},
 				streamSimple: (_model, context, options) => {
+					calls++;
 					void options?.onPayload?.({ input: context.messages });
-					return streamWithMessage(successfulMessage(0, 0));
+					return streamWithMessage(successfulMessage(calls === 2 ? 100 : 0, calls === 1 ? 100 : 0));
 				},
 				stdoutIsTTY: false,
 			},
 		);
 
+		expect(stdout).toContain(
+			"cold prompt_cache_write_observed input 20 cache-read 0 cache-write 100 output 2 total 122 cost $4.00",
+		);
+		expect(stdout).toContain(
+			"warm prompt_cache_read_observed input 20 cache-read 100 cache-write 0 output 2 total 122 cost $4.00",
+		);
 		expect(stdout).toContain("TTFT");
 		expect(stdout).toContain("duration");
-		expect(stdout).toContain("tokens");
 		expect(stdout).toContain("throughput");
 	});
 
@@ -356,6 +454,44 @@ describe("bench cache mode", () => {
 		expect(stablePrefixes).toHaveLength(2);
 		expect(stablePrefixes[0]).toBe(stablePrefixes[1]);
 		expect(stablePrefixes[0]).toStartWith("ab\n\nPrompt-cache benchmark namespace:");
+	});
+
+	it("truncates the default prefix-file reader at a UTF-8 boundary before decoding", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-bench-cache-prefix-"));
+		const prefixPath = path.join(tempDir, "prefix.txt");
+		const stablePrefixes: string[] = [];
+		await Bun.write(prefixPath, "ab😀cd");
+		try {
+			await runBenchCommand(
+				{
+					models: ["openai/gpt-cache-test"],
+					flags: { cache: true, cachePrefixFile: prefixPath, cachePrefixBytes: 3, json: true },
+				},
+				{
+					createRuntime: async () => ({ modelRegistry: registry, close: () => {} }),
+					randomSessionId: (() => {
+						let id = 0;
+						return () => `session-${++id}`;
+					})(),
+					writeStdout: () => {},
+					writeStderr: () => {},
+					setExitCode: () => {},
+					streamSimple: (_model, context, options) => {
+						stablePrefixes.push(context.messages[0]?.content as string);
+						void options?.onPayload?.({ input: context.messages });
+						return streamWithMessage(successfulMessage(0, 0));
+					},
+					stdoutIsTTY: false,
+				},
+			);
+		} finally {
+			await fs.rm(tempDir, { recursive: true, force: true });
+		}
+
+		expect(stablePrefixes).toHaveLength(2);
+		expect(stablePrefixes[0]).toBe(stablePrefixes[1]);
+		expect(stablePrefixes[0]).toStartWith("ab\n\nPrompt-cache benchmark namespace:");
+		expect(stablePrefixes[0]).not.toContain("\uFFFD");
 	});
 
 	it("does not turn zero cache counters into a miss", async () => {
