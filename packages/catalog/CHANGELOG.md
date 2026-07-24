@@ -10,6 +10,7 @@
 - Added an opt-in Vercel AI Gateway automatic prompt-cache compatibility option alongside provider routing preferences.
 - Added Vercel AI Gateway Responses cache-anchor and cache-lifetime compatibility controls.
 - Added resolved OpenAI GPT-5.6 prompt-cache breakpoint capability metadata, keeping older models and compatible endpoints opt-in only.
+- Added the native `alibaba-token-plan` provider with QwenCloud Token Plan Individual discovery and a curated chat-model fallback catalog ([#6151](https://github.com/can1357/oh-my-pi/issues/6151)).
 
 ## [17.0.9] - 2026-07-23
 
