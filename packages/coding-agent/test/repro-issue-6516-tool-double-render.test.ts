@@ -208,4 +208,79 @@ describe("issue #6516 — tool output appears twice", () => {
 		// tool's result still lands in the on-screen block.
 		expect(mode.pendingTools.get("call-1")).toBe(live);
 	});
+
+	it("keeps a still-running background task's live handle across a rebuild", () => {
+		const runningDetails = { async: { state: "running", jobId: "job-1", type: "task" } };
+		const entries: SessionEntry[] = [
+			{
+				type: "message",
+				id: "m1",
+				parentId: null,
+				timestamp: Date.now(),
+				message: { role: "user", content: [{ type: "text", text: "spawn it" }], timestamp: 1 },
+			},
+			{
+				type: "message",
+				id: "m2",
+				parentId: "m1",
+				timestamp: Date.now(),
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "toolCall", id: "call-1", name: "task", arguments: { description: "run", prompt: "go" } },
+					],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4-5",
+					usage,
+					stopReason: "toolUse",
+					timestamp: 2,
+				},
+			},
+			{
+				type: "message",
+				id: "m3",
+				parentId: "m2",
+				timestamp: Date.now(),
+				message: {
+					role: "toolResult",
+					toolCallId: "call-1",
+					toolName: "task",
+					content: [{ type: "text", text: "running…" }],
+					details: runningDetails,
+					isError: false,
+					timestamp: 3,
+				},
+			},
+		] as unknown as SessionEntry[];
+
+		Object.defineProperty(session, "isStreaming", { configurable: true, get: () => true });
+		vi.spyOn(session, "buildTranscriptSessionContext").mockReturnValue(
+			buildSessionContext(entries, undefined, undefined, { transcript: true }),
+		);
+
+		const live = new ToolExecutionComponent(
+			"task",
+			{ description: "run", prompt: "go" },
+			{},
+			undefined,
+			mode.ui,
+			tempDir.path(),
+			"call-1",
+		);
+		live.updateResult(
+			{ content: [{ type: "text", text: "running…" }], details: runningDetails, isError: false },
+			true,
+			"call-1",
+		);
+		created.push(live);
+		mode.chatContainer.addChild(live);
+		mode.pendingTools.set("call-1", live);
+
+		mode.rebuildChatFromMessages();
+
+		// The still-running task's live handle must survive the rebuild so a later
+		// tool_execution_update/_end settles it instead of stranding on "running".
+		expect(mode.pendingTools.get("call-1")).toBe(live);
+	});
 });
