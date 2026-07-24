@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { Agent } from "@oh-my-pi/pi-agent-core";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { ReadToolGroupComponent } from "@oh-my-pi/pi-coding-agent/modes/components/read-tool-group";
 import { ToolExecutionComponent } from "@oh-my-pi/pi-coding-agent/modes/components/tool-execution";
 import { InteractiveMode } from "@oh-my-pi/pi-coding-agent/modes/interactive-mode";
 import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
@@ -280,7 +281,78 @@ describe("issue #6516 — tool output appears twice", () => {
 		mode.rebuildChatFromMessages();
 
 		// The still-running task's live handle must survive the rebuild so a later
-		// tool_execution_update/_end settles it instead of stranding on "running".
+		// tool_execution_update/_end settles it instead of stranding on "running",
+		// without also leaving the replayed snapshot on screen.
 		expect(mode.pendingTools.get("call-1")).toBe(live);
+		expect(mode.chatContainer.children.filter(child => child instanceof ToolExecutionComponent)).toHaveLength(1);
+	});
+
+	it("keeps a shared read group attached while a sibling read is still in flight", () => {
+		const entries: SessionEntry[] = [
+			{
+				type: "message",
+				id: "m1",
+				parentId: null,
+				timestamp: Date.now(),
+				message: { role: "user", content: [{ type: "text", text: "read them" }], timestamp: 1 },
+			},
+			{
+				type: "message",
+				id: "m2",
+				parentId: "m1",
+				timestamp: Date.now(),
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.txt" } },
+						{ type: "toolCall", id: "call-2", name: "read", arguments: { path: "b.txt" } },
+					],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4-5",
+					usage,
+					stopReason: "toolUse",
+					timestamp: 2,
+				},
+			},
+			{
+				type: "message",
+				id: "m3",
+				parentId: "m2",
+				timestamp: Date.now(),
+				message: {
+					role: "toolResult",
+					toolCallId: "call-1",
+					toolName: "read",
+					content: [{ type: "text", text: "contents of a" }],
+					isError: false,
+					timestamp: 3,
+				},
+			},
+		] as unknown as SessionEntry[];
+
+		Object.defineProperty(session, "isStreaming", { configurable: true, get: () => true });
+		vi.spyOn(session, "buildTranscriptSessionContext").mockReturnValue(
+			buildSessionContext(entries, undefined, undefined, { transcript: true }),
+		);
+
+		// One group component shared by both read ids, exactly as the live path
+		// wires it (ui-helpers sets the same ReadToolGroupComponent per read id).
+		const group = new ReadToolGroupComponent();
+		group.updateArgs({ path: "a.txt" }, "call-1");
+		group.updateArgs({ path: "b.txt" }, "call-2");
+		mode.chatContainer.addChild(group);
+		mode.pendingTools.set("call-1", group);
+		mode.pendingTools.set("call-2", group);
+
+		mode.rebuildChatFromMessages();
+
+		// The shared group must stay the sole on-screen owner for both the completed
+		// call-1 and pending call-2 — splicing it would detach the pending read's
+		// display, while replaying call-1 would duplicate the group.
+		expect(mode.pendingTools.get("call-1")).toBeUndefined();
+		expect(mode.pendingTools.get("call-2")).toBe(group);
+		expect(mode.chatContainer.children.includes(group)).toBe(true);
+		expect(mode.chatContainer.children.filter(child => child instanceof ReadToolGroupComponent)).toHaveLength(1);
 	});
 });

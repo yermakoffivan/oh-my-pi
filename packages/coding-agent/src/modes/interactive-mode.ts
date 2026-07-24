@@ -1740,6 +1740,7 @@ export class InteractiveMode implements InteractiveModeContext {
 		const context = this.viewSession.buildTranscriptSessionContext({
 			collapseCompactedHistory: settings.get("display.collapseCompacted"),
 		});
+		const preservedLiveToolCallIds = new Set<string>();
 		// A preserved pending-tool component whose result has already landed in
 		// the replayed transcript is re-rendered by `renderSessionContext` itself
 		// (the toolResult message reconstructs the block with its output). Keeping
@@ -1765,8 +1766,31 @@ export class InteractiveMode implements InteractiveModeContext {
 			// terminal results are owned by the replay. (Cast mirrors the async
 			// detail reads in tool-execution.ts / event-controller.ts.)
 			const details = message.details as { async?: { state?: string } } | undefined;
-			if (details?.async?.state === "running") continue;
+			if (details?.async?.state === "running") {
+				preservedLiveToolCallIds.add(message.toolCallId);
+				continue;
+			}
 			livePendingTools.delete(message.toolCallId);
+			// A `ReadToolGroupComponent` is shared by every read id it renders
+			// (ui-helpers sets the same group for each collapsed read call). While a
+			// sibling read id still points at it the component must stay on screen
+			// and preserved — splicing it here would detach the pending read's
+			// display and strand its future result on an off-screen component.
+			// Splice only once no remaining pending id shares it.
+			let stillShared = false;
+			for (const other of livePendingTools.values()) {
+				if (other === resolved) {
+					stillShared = true;
+					break;
+				}
+			}
+			if (stillShared) {
+				// The shared component still owns this completed member as well as
+				// its pending sibling. Suppress the replay copy so the group remains
+				// a single on-screen block while future results keep routing to it.
+				preservedLiveToolCallIds.add(message.toolCallId);
+				continue;
+			}
 			const index = liveComponents.indexOf(resolved as unknown as Component);
 			if (index >= 0) liveComponents.splice(index, 1);
 		}
@@ -1781,7 +1805,10 @@ export class InteractiveMode implements InteractiveModeContext {
 			if (component) retained.set(message, component);
 		}
 		this.transcriptMessageComponents = retained;
-		this.renderSessionContext(context, { reuseSettledComponents: options.reuseSettledComponents });
+		this.renderSessionContext(context, {
+			reuseSettledComponents: options.reuseSettledComponents,
+			preservedLiveToolCallIds,
+		});
 		for (const child of liveComponents) {
 			this.chatContainer.addChild(child);
 		}
