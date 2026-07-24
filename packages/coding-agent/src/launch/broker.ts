@@ -120,6 +120,22 @@ export function orderDaemonsForListing(snapshots: DaemonSnapshot[]): DaemonSnaps
 	return [...active, ...terminal.slice(0, MAX_TERMINAL_DAEMONS_LISTED)];
 }
 
+/**
+ * Reap a recovered non-detached daemon snapshot in place. Already-terminal
+ * records are left untouched so `list` keeps their real {@link DaemonSnapshot.exitedAt}
+ * for recency ranking; records that were still alive when the previous broker
+ * exited are marked `exited` at `now`, since their process died with that broker
+ * (issue #6517). Returns whether the record was reaped.
+ */
+export function reapRecoveredSnapshot(snapshot: DaemonSnapshot, now: number): boolean {
+	if (terminalState(snapshot.state)) return false;
+	snapshot.pid = undefined;
+	snapshot.state = "exited";
+	snapshot.exitedAt = now;
+	snapshot.exitReason = "previous broker exited";
+	return true;
+}
+
 /** Mirror per-condition readiness progress into the snapshot so clients can see which condition is unmet. */
 function syncReadyPending(record: ManagedDaemon): void {
 	if (record.snapshot.state !== "starting") {
@@ -996,11 +1012,13 @@ class DaemonBroker {
 					snapshot.state !== "stopping" &&
 					processRef?.status() === "running";
 				if (!detached) {
-					if (processRef) await processRef.terminate({ group: true, gracefulMs: 500, timeoutMs: 2_000 });
-					snapshot.pid = undefined;
-					snapshot.state = "exited";
-					snapshot.exitedAt = Date.now();
-					snapshot.exitReason = "previous broker exited";
+					// Reap only records that were still alive when the previous broker
+					// exited; already-terminal records keep their real exit time so
+					// `list` ranks exited history by true recency (issue #6517).
+					if (!terminalState(snapshot.state) && processRef) {
+						await processRef.terminate({ group: true, gracefulMs: 500, timeoutMs: 2_000 });
+					}
+					reapRecoveredSnapshot(snapshot, Date.now());
 				} else if (snapshot.state === "restarting") {
 					snapshot.state = spec.ready ? "starting" : "running";
 				}

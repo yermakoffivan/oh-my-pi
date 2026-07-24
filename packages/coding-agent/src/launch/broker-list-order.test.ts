@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { MAX_TERMINAL_DAEMONS_LISTED, orderDaemonsForListing } from "./broker";
+import { MAX_TERMINAL_DAEMONS_LISTED, orderDaemonsForListing, reapRecoveredSnapshot } from "./broker";
 import type { DaemonSnapshot, DaemonState } from "./protocol";
 
 function snapshot(name: string, state: DaemonState, createdAt: number, exitedAt?: number): DaemonSnapshot {
@@ -57,5 +57,48 @@ describe("orderDaemonsForListing", () => {
 		const kept = ordered.slice(1).map(d => d.name);
 		expect(kept).toContain(`exited-${MAX_TERMINAL_DAEMONS_LISTED + 19}`);
 		expect(kept).not.toContain("exited-0");
+	});
+});
+
+describe("reapRecoveredSnapshot", () => {
+	it("preserves the real exit time of already-terminal records", () => {
+		const exited = snapshot("done", "exited", 1_000, 2_000);
+		exited.exitReason = "process completed";
+		const failed = snapshot("boom", "failed", 3_000, 4_000);
+
+		expect(reapRecoveredSnapshot(exited, 9_000)).toBe(false);
+		expect(reapRecoveredSnapshot(failed, 9_000)).toBe(false);
+		expect(exited.exitedAt).toBe(2_000);
+		expect(exited.exitReason).toBe("process completed");
+		expect(failed.exitedAt).toBe(4_000);
+		expect(failed.state).toBe("failed");
+	});
+
+	it("reaps records that were still alive at recovery time", () => {
+		const running = snapshot("web", "running", 5_000);
+		running.pid = 4242;
+
+		expect(reapRecoveredSnapshot(running, 9_000)).toBe(true);
+		expect(running.state).toBe("exited");
+		expect(running.exitedAt).toBe(9_000);
+		expect(running.exitReason).toBe("previous broker exited");
+		expect(running.pid).toBeUndefined();
+	});
+
+	it("keeps the genuinely most-recent exit visible after recovery restamps live records", () => {
+		// A long-lived project: many old exited daemons plus one that was still
+		// running when the broker restarted (reaped to recovery time).
+		const recovered: DaemonSnapshot[] = [];
+		for (let i = 0; i < MAX_TERMINAL_DAEMONS_LISTED + 5; i++) {
+			const s = snapshot(`old-${i}`, "exited", i * 10, i * 10 + 1);
+			reapRecoveredSnapshot(s, 100_000); // no-op: already terminal
+			recovered.push(s);
+		}
+		const lastFailed = snapshot("last-failed", "failed", 500, 5_000);
+		reapRecoveredSnapshot(lastFailed, 100_000); // no-op: already terminal
+		recovered.push(lastFailed);
+
+		const kept = orderDaemonsForListing(recovered).map(d => d.name);
+		expect(kept).toContain("last-failed");
 	});
 });
