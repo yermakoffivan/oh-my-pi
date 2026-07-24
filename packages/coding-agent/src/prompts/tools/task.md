@@ -22,7 +22,6 @@ Agents marked BLOCKING run inline — results return in this call; non-blocking 
   - `name`: A stable CamelCase identifier (≤32 chars), used to address the agent (IRC, job ids). Generated automatically if omitted.
   - `agent`: The agent type running this item (e.g. `scout`, `reviewer`). Omitting it gives you the general-purpose worker (`{{defaultAgent}}`) — NEVER pass that name explicitly. Only omit it after checking the agent list below and finding no specialist that fits.{{#if allowedAgentsText}} Current spawn policy allows: {{allowedAgentsText}}.{{/if}}
   - `task`: Complete, self-contained instructions. One-liners or missing acceptance criteria are PROHIBITED.
-  - `model`: Explicit non-empty model selector or non-empty fallback chain for this spawn. A `:reasoning` suffix is preserved. Overrides agent-specific model settings.
   - `outputSchema`: Invocation-specific JSON Schema. Overrides the selected agent and parent-session schemas.
   - `schemaMode`: `"permissive"` (default) accepts a retry-exhausted invalid result with a warning; `"strict"` fails it.
 {{#if isolationEnabled}}
@@ -36,7 +35,6 @@ Agents marked BLOCKING run inline — results return in this call; non-blocking 
 - `name`: A stable CamelCase identifier (≤32 chars), used to address the agent (IRC, job ids). Generated automatically if omitted.
 - `agent`: The agent type to spawn (e.g. `scout`, `reviewer`). Omitting it gives you the general-purpose worker (`{{defaultAgent}}`) — NEVER pass that name explicitly. Only omit it after checking the agent list below and finding no specialist that fits.{{#if allowedAgentsText}} Current spawn policy allows: {{allowedAgentsText}}.{{/if}}
 - `task`: Complete, self-contained instructions. One-liners or missing acceptance criteria are PROHIBITED.
-- `model`: Explicit non-empty model selector or non-empty fallback chain for this spawn. A `:reasoning` suffix is preserved. Overrides agent-specific model settings.
 - `outputSchema`: Invocation-specific JSON Schema. Overrides the selected agent and parent-session schemas.
 - `schemaMode`: `"permissive"` (default) accepts a retry-exhausted invalid result with a warning; `"strict"` fails it.
 {{#if isolationEnabled}}

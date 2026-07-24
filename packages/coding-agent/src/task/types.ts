@@ -113,7 +113,6 @@ export const taskItemSchema = type({
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
-	"model?": "string | string[]",
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"+": "delete",
@@ -122,7 +121,6 @@ const taskItemSchemaIsolated = type({
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
-	"model?": "string | string[]",
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"isolated?": "boolean",
@@ -137,8 +135,6 @@ export interface TaskItem {
 	agent?: string;
 	/** The work; required by the schema. */
 	task?: string;
-	/** Explicit model selector or fallback chain for this spawn, including optional reasoning suffixes. */
-	model?: string | string[];
 	/** Caller-provided output schema; its presence overrides the selected agent's schema. */
 	outputSchema?: unknown;
 	/** Validation behavior for a caller-provided or inherited output schema. */
@@ -151,7 +147,6 @@ export const taskSchema = type({
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
-	"model?": "string | string[]",
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"isolated?": "boolean",
@@ -161,7 +156,6 @@ const taskSchemaNoIsolation = type({
 	"name?": "string",
 	agent: "string = 'task'",
 	task: "string",
-	"model?": "string | string[]",
 	"outputSchema?": outputSchemaInputSchema,
 	"schemaMode?": '"permissive" | "strict"',
 	"+": "delete",
@@ -206,7 +200,6 @@ function createTaskSchema(options: {
 				"name?": "string",
 				agent,
 				task: "string",
-				"model?": "string | string[]",
 				"outputSchema?": outputSchemaInputSchema,
 				"schemaMode?": '"permissive" | "strict"',
 				"isolated?": "boolean",
@@ -222,7 +215,6 @@ function createTaskSchema(options: {
 			"name?": "string",
 			agent,
 			task: "string",
-			"model?": "string | string[]",
 			"outputSchema?": outputSchemaInputSchema,
 			"schemaMode?": '"permissive" | "strict"',
 			"+": "delete",
@@ -238,7 +230,6 @@ function createTaskSchema(options: {
 			"name?": "string",
 			agent,
 			task: "string",
-			"model?": "string | string[]",
 			"outputSchema?": outputSchemaInputSchema,
 			"schemaMode?": '"permissive" | "strict"',
 			"isolated?": "boolean",
@@ -249,7 +240,6 @@ function createTaskSchema(options: {
 		"name?": "string",
 		agent,
 		task: "string",
-		"model?": "string | string[]",
 		"outputSchema?": outputSchemaInputSchema,
 		"schemaMode?": '"permissive" | "strict"',
 		"+": "delete",
@@ -293,8 +283,6 @@ export interface TaskParams {
 	agent?: string;
 	/** The work (flat form). */
 	task?: string;
-	/** Explicit model selector or fallback chain for the spawn, including optional reasoning suffixes. */
-	model?: string | string[];
 	/** Caller-provided output schema; its presence overrides the selected agent's schema. */
 	outputSchema?: unknown;
 	/** Validation behavior for a caller-provided or inherited output schema. */

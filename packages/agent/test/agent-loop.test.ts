@@ -1112,9 +1112,9 @@ describe("agentLoop with AgentMessage", () => {
 		// Names the resolver does not know keep the "not found" failure.
 		const missingResult = results.find(r => r.toolCallId === "tool-2");
 		expect(missingResult?.isError).toBe(true);
-		expect(
-			missingResult?.content.some(c => c.type === "text" && c.text.includes("Tool nonexistent not found")),
-		).toBe(true);
+		expect(missingResult?.content.some(c => c.type === "text" && c.text.includes("Tool nonexistent not found"))).toBe(
+			true,
+		);
 	});
 
 	it("injects and strips intent when intent tracing is enabled", async () => {
