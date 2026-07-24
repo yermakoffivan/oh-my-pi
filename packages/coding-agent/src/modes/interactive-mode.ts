@@ -1020,10 +1020,14 @@ export class InteractiveMode implements InteractiveModeContext {
 		// now, idle and unref'd, so the first submit reuses a live subprocess
 		// instead of paying spawn latency ahead of the first frame (issue #6462).
 		// No-ops for the online default and for already-named sessions that will
-		// not be titled.
-		if (!$env.PI_NO_TITLE && !this.sessionManager.getSessionName()) {
-			tinyTitleClient.prewarm(this.settings.get("providers.tinyModel"));
-		}
+		// not be titled. Deferred via setImmediate so it runs AFTER the render
+		// callback requestRender(true) queued above (immediates are FIFO) — the
+		// spawn syscall never lands in the same loop turn ahead of the first paint.
+		setImmediate(() => {
+			if (!$env.PI_NO_TITLE && !this.sessionManager.getSessionName()) {
+				tinyTitleClient.prewarm(this.settings.get("providers.tinyModel"));
+			}
+		});
 
 		// Initialize hooks with TUI-based UI context
 		await this.initHooksAndCustomTools();
