@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { encodeResponse, encodeStream, parseRequest } from "@oh-my-pi/pi-ai/providers/anthropic-messages-server";
+import type { ServerToolUseBlockParam, WebSearchToolResultBlockParam } from "@oh-my-pi/pi-ai/providers/anthropic-wire";
 import type { AssistantMessage, AssistantMessageEvent, ToolResultMessage } from "@oh-my-pi/pi-ai/types";
 import { AssistantMessageEventStream } from "@oh-my-pi/pi-ai/utils/event-stream";
 import { Effort } from "@oh-my-pi/pi-catalog/effort";
@@ -294,6 +295,50 @@ describe("anthropic-messages parseRequest", () => {
 			],
 		});
 		expect(unknown.context.messages).toHaveLength(1);
+	});
+
+	it("preserves inbound assistant server_tool_use/web_search_tool_result blocks verbatim", () => {
+		const serverToolUse: ServerToolUseBlockParam = {
+			type: "server_tool_use",
+			id: "srvtoolu_1",
+			name: "web_search",
+			input: { query: "weather" },
+		};
+		const searchResult: WebSearchToolResultBlockParam = {
+			type: "web_search_tool_result",
+			tool_use_id: "srvtoolu_1",
+			content: [
+				{
+					type: "web_search_result",
+					url: "https://example.com/weather",
+					title: "Weather",
+					encrypted_content: "encrypted-result",
+				},
+			],
+		};
+		const parsed = parseRequest({
+			model: "claude-opus-4-7",
+			max_tokens: 8,
+			messages: [
+				{ role: "user", content: "weather?" },
+				{
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "search", signature: "sig-1" },
+						serverToolUse,
+						searchResult,
+						{ type: "text", text: "forecast ready" },
+					],
+				},
+			],
+		});
+		const assistant = parsed.context.messages.find(message => message.role === "assistant");
+		expect(assistant?.content).toEqual([
+			{ type: "thinking", thinking: "search", thinkingSignature: "sig-1" },
+			{ type: "anthropicServerTool", block: serverToolUse },
+			{ type: "anthropicServerTool", block: searchResult },
+			{ type: "text", text: "forecast ready" },
+		]);
 	});
 });
 

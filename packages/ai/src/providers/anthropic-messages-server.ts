@@ -4,6 +4,7 @@ import { type } from "arktype";
 import { captureRequestHeaders, resolvePromptCacheKey } from "../auth-gateway/http";
 import * as AIError from "../error";
 import type {
+	AnthropicServerToolContent,
 	AssistantMessage,
 	AssistantMessageEventStream,
 	Message,
@@ -181,8 +182,8 @@ function walkUserContent(
 
 function walkAssistantContent(
 	blocks: string | AnthropicAssistantContentBlock[],
-): (TextContent | ThinkingContent | RedactedThinkingContent | ToolCall)[] {
-	const out: (TextContent | ThinkingContent | RedactedThinkingContent | ToolCall)[] = [];
+): (TextContent | ThinkingContent | RedactedThinkingContent | AnthropicServerToolContent | ToolCall)[] {
+	const out: (TextContent | ThinkingContent | RedactedThinkingContent | AnthropicServerToolContent | ToolCall)[] = [];
 	if (typeof blocks === "string") {
 		if (blocks.length > 0) out.push({ type: "text", text: blocks });
 		return out;
@@ -212,8 +213,17 @@ function walkAssistantContent(
 							: {},
 				});
 				break;
+			case "server_tool_use":
+			case "web_search_tool_result":
+				// Native Anthropic server-tool call/result. Anthropic requires
+				// these replayed verbatim (encrypted_content/signatures included),
+				// so retain the block as-is instead of flattening to text — a
+				// gateway client sending the response back as history must be able
+				// to reconstruct the exact assistant turn.
+				out.push({ type: "anthropicServerTool", block: { ...block } });
+				break;
 			default: {
-				// Unknown assistant variant (server_tool_use, mcp_tool_use, …).
+				// Unknown assistant variant (mcp_tool_use, code_execution_*, …).
 				// Flatten to a text placeholder; warn once per unknown type.
 				const unknown = block as { type: string };
 				warnUnknownBlockType("assistant", unknown.type);
