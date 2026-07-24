@@ -22,6 +22,7 @@
 - Documented Vibe mode (`/vibe`) in `docs/vibe-mode.md` and the `/fresh` provider-stream reset in the session-operations doc, and linked both from the README's new "Session controls" section ([#6440](https://github.com/can1357/oh-my-pi/issues/6440)).
 - Added `getServiceTiers()` and `setServiceTier()` extension APIs for reading and changing the live per-family service tier used by subsequent session requests ([#5860](https://github.com/can1357/oh-my-pi/issues/5860)).
 - Added opt-in `omp bench --cache` independent cold/warm prompt-cache pairs with stable-prefix controls, sequential-by-default execution, mechanism-specific provider proof, and privacy-safe JSON output; it rejects `openai-codex-responses`, whose WebSocket transport chains turns.
+- Added `tools.xdevDocs` prompt-doc modes (`inline`, `builtins`, `catalog`) and the `tools.xdevInlineDevices` glob allowlist controlling which mounted `xd://` device docs are inlined into the system prompt; dynamic-device catalog summaries and mid-session mount notices are capped to one line, and changing the mode in `/settings` refreshes the active prompt ([#6063](https://github.com/can1357/oh-my-pi/issues/6063)).
 
 ### Changed
 

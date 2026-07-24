@@ -2596,7 +2596,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				cwd,
 				additionalWorkspaceRoots: sessionManager.getAdditionalDirectories(),
 				xdevTools: toolSession.xdevRegistry?.entries() ?? [],
-				xdevDocs: toolSession.xdevRegistry?.docsAll() ?? "",
+				xdevDocs:
+					toolSession.xdevRegistry?.docsAll(
+						settings.get("tools.xdevDocs"),
+						settings.get("tools.xdevInlineDevices"),
+					) ?? "",
 				autoQaEnabled: !restrictToolNames && isAutoQaEnabled(settings),
 				resolvedCustomPrompt: options.customSystemPrompt,
 				skills: session?.skills ?? skills,

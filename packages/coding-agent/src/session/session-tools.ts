@@ -571,10 +571,15 @@ export class SessionTools {
 		const summaries = new Map(this.#xdevRegistry?.entries().map(entry => [entry.name, entry.summary]) ?? []);
 		const added = [...pending.added].map(name => ({ name, summary: summaries.get(name) ?? "" }));
 		const removed = [...pending.removed].map(name => ({ name }));
+		const docs = this.#xdevRegistry?.docsFor(
+			pending.added,
+			this.#host.settings.get("tools.xdevDocs"),
+			this.#host.settings.get("tools.xdevInlineDevices"),
+		);
 		return {
 			role: "custom",
 			customType: XDEV_MOUNT_NOTICE_MESSAGE_TYPE,
-			content: prompt.render(xdevMountNoticePrompt, { added, removed }),
+			content: prompt.render(xdevMountNoticePrompt, { added, removed, docs }),
 			attribution: "agent",
 			display: false,
 			timestamp: Date.now(),
