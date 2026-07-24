@@ -4207,8 +4207,6 @@ export class AgentSession {
 			planFilePath,
 		});
 
-		this.#planReferenceSent = true;
-
 		return {
 			role: "custom",
 			customType: "plan-mode-reference",
@@ -4776,6 +4774,17 @@ export class AgentSession {
 				nonMessageTokens,
 				cutoffCount: this.messages.length + messages.length,
 			});
+			// Commit the plan-reference delivery flag only now that the message is
+			// actually handed to agent.prompt. Every pre-send setup step above can
+			// return (generation-bail) or throw (@-mention reads, before_agent_start
+			// hooks, pre-prompt compaction) before this point; setting the flag at
+			// construction time (#buildPlanReferenceMessage) stranded it `true` with
+			// nothing delivered, so the retry skipped re-injection and the executor
+			// lost the approved plan (issue #4094). The compaction-success resets
+			// (issue #1246) still clear it for re-injection on the next turn.
+			if (planReferenceMessage) {
+				this.#planReferenceSent = true;
+			}
 			try {
 				await this.#recovery.promptAgentWithIdleRetry(messages, agentPromptOptions);
 			} finally {
