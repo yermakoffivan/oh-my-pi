@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed the Z.AI feature quota row to `ZAI Zread Quota` (tier/id slug `zread`), replacing the 74-char `ZAI Web Search / Reader / Zread Quota (web-search-reader-zread)` title that wrapped `omp usage` rows
+
 ## [17.1.1] - 2026-07-24
 
 ### Added
