@@ -457,6 +457,9 @@ function encodeContentBlocks(message: AssistantMessage): Record<string, unknown>
 			case "redactedThinking":
 				blocks.push({ type: "redacted_thinking", data: c.data });
 				break;
+			case "anthropicServerTool":
+				blocks.push(c.block);
+				break;
 			case "toolCall":
 				blocks.push({ type: "tool_use", id: c.id, name: c.name, input: c.arguments ?? {} });
 				break;

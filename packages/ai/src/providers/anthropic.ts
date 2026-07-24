@@ -21,6 +21,7 @@ import * as AIError from "../error";
 import { getEnvApiKey, OUTPUT_FALLBACK_BUFFER } from "../stream";
 import type {
 	AnthropicFallbackContent,
+	AnthropicServerToolContent,
 	Api,
 	AssistantMessage,
 	CacheRetention,
@@ -1977,6 +1978,7 @@ const streamAnthropicOnce = (
 				| RedactedThinkingContent
 				| TextContent
 				| AnthropicFallbackContent
+				| (AnthropicServerToolContent & { [kStreamingPartialJson]?: string })
 				| (ToolCall & { [kStreamingPartialJson]: string; [kStreamingLastParseLen]?: number })
 			) & { [kStreamingBlockIndex]: number };
 			const idleTimeoutMs = options?.streamIdleTimeoutMs ?? getStreamIdleTimeoutMs();
@@ -1994,6 +1996,23 @@ const streamAnthropicOnce = (
 						block.thinkingSignature = undefined;
 					}
 					stream.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: output });
+				} else if (block.type === "anthropicServerTool" && block.block.type === "server_tool_use") {
+					const partialJson = block[kStreamingPartialJson];
+					if (partialJson) {
+						try {
+							const input = parseJsonWithRepair(partialJson);
+							if (isRecord(input)) {
+								block.block.input = input;
+							} else {
+								reportAnthropicEnvelopeAnomaly("server_tool_use input is not a JSON object");
+							}
+						} catch (parseError) {
+							reportAnthropicEnvelopeAnomaly(
+								`server_tool_use ${block.block.id} input is not valid JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+							);
+						}
+					}
+					clearStreamingPartialJson(block);
 				} else if (block.type === "toolCall") {
 					const finalJson =
 						block[kStreamingPartialJson].length > 0
@@ -2094,7 +2113,14 @@ const streamAnthropicOnce = (
 						number,
 						{
 							contentIndex: number;
-							kind: "text" | "thinking" | "redactedThinking" | "fallback" | "toolCall" | "ignored";
+							kind:
+								| "text"
+								| "thinking"
+								| "redactedThinking"
+								| "fallback"
+								| "anthropicServerTool"
+								| "toolCall"
+								| "ignored";
 						}
 					>();
 
@@ -2276,6 +2302,23 @@ const streamAnthropicOnce = (
 									contentIndex: output.content.length - 1,
 									kind: "redactedThinking",
 								});
+							} else if (
+								(event.content_block.type === "server_tool_use" ||
+									event.content_block.type === "web_search_tool_result") &&
+								umansGatewayWebSearchHeader === undefined
+							) {
+								streamedReplayUnsafeContent = true;
+								const block: Block = {
+									type: "anthropicServerTool",
+									block: { ...event.content_block },
+									[kStreamingPartialJson]: "",
+									[kStreamingBlockIndex]: event.index,
+								};
+								output.content.push(block);
+								openBlocks.set(event.index, {
+									contentIndex: output.content.length - 1,
+									kind: "anthropicServerTool",
+								});
 							} else if (event.content_block.type === "tool_use") {
 								streamedReplayUnsafeContent = true;
 								const block: Block = {
@@ -2346,6 +2389,15 @@ const streamAnthropicOnce = (
 									partial: output,
 								});
 							} else if (event.delta.type === "input_json_delta") {
+								if (
+									openBlock.kind === "anthropicServerTool" &&
+									block?.type === "anthropicServerTool" &&
+									block.block.type === "server_tool_use"
+								) {
+									block[kStreamingPartialJson] =
+										(block[kStreamingPartialJson] ?? "") + event.delta.partial_json;
+									continue;
+								}
 								if (openBlock.kind !== "toolCall" || block?.type !== "toolCall") {
 									reportAnthropicEnvelopeAnomaly(`received input_json_delta for ${openBlock.kind} block`);
 									continue;
@@ -3637,6 +3689,8 @@ export function convertAnthropicMessages(
 						type: "redacted_thinking",
 						data: block.data,
 					});
+				} else if (block.type === "anthropicServerTool") {
+					blocks.push(block.block);
 				} else if (block.type === "fallback") {
 					// Replay ONLY when both sides are aligned: the current
 					// request opted into the beta chain, and the target is

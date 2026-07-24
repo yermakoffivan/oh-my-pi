@@ -65,6 +65,23 @@ export type ToolResultBlockParam = {
 	cache_control?: CacheControlEphemeral | null;
 };
 
+/** Anthropic-executed server tool call replayed inside an assistant turn. */
+export type ServerToolUseBlockParam = {
+	type: "server_tool_use";
+	id: string;
+	name: string;
+	input?: Record<string, unknown> | null;
+	[key: string]: unknown;
+};
+
+/** Native web-search result replayed inside an assistant turn. */
+export type WebSearchToolResultBlockParam = {
+	type: "web_search_tool_result";
+	tool_use_id: string;
+	content: unknown;
+	[key: string]: unknown;
+};
+
 export type ThinkingBlockParam = {
 	type: "thinking";
 	thinking: string;
@@ -93,6 +110,8 @@ export type ContentBlockParam =
 	| ImageBlockParam
 	| ToolUseBlockParam
 	| ToolResultBlockParam
+	| ServerToolUseBlockParam
+	| WebSearchToolResultBlockParam
 	| ThinkingBlockParam
 	| RedactedThinkingBlockParam
 	| FallbackBlockParam;
@@ -278,6 +297,8 @@ export type ResponseContentBlock =
 	| { type: "thinking"; thinking: string; signature?: string }
 	| { type: "redacted_thinking"; data: string }
 	| { type: "tool_use"; id: string; name: string; input?: Record<string, unknown> | null }
+	| ServerToolUseBlockParam
+	| WebSearchToolResultBlockParam
 	| { type: "fallback"; from: { model: string }; to: { model: string } };
 
 export type ContentBlockDelta =

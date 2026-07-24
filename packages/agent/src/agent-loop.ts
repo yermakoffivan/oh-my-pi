@@ -348,6 +348,8 @@ function snapshotAssistantContentBlock(block: AssistantContentBlock): AssistantC
 			return { ...block };
 		case "redactedThinking":
 			return { ...block };
+		case "anthropicServerTool":
+			return { ...block, block: structuredCloneJSON(block.block) };
 		case "fallback":
 			return { ...block, from: { ...block.from }, to: { ...block.to } };
 		case "toolCall":
