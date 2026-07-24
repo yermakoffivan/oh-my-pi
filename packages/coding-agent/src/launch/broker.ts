@@ -33,6 +33,12 @@ const MAX_LOG_BYTES = 25 * 1024 * 1024;
 const LOG_READ_BYTES = 2 * 1024 * 1024;
 const READINESS_BUFFER_CHARS = 64 * 1024;
 const RESTART_MAX_DELAY_MS = 30_000;
+/**
+ * Cap on terminal (exited/failed) daemons surfaced by `list`. Active daemons
+ * are always shown in full; older history is truncated so the response stays
+ * bounded over a long-lived project (issue #6517).
+ */
+export const MAX_TERMINAL_DAEMONS_LISTED = 10;
 const TOKEN_FILE = "broker.token";
 const PID_FILE = "broker.pid";
 const META_FILE = "meta.json";
@@ -93,6 +99,25 @@ function quoteShellArg(value: string): string {
 
 function terminalState(state: DaemonSnapshot["state"]): boolean {
 	return state === "exited" || state === "failed";
+}
+
+/**
+ * Order daemons for the `list` response: non-terminal (active) daemons first,
+ * oldest to newest, so the process the user is acting on is immediately visible
+ * instead of buried behind exited history; then the most recently exited/failed
+ * ones, capped at {@link MAX_TERMINAL_DAEMONS_LISTED} to keep the response from
+ * growing without bound. Truncated terminal records stay addressable by name
+ * via `describe`/`logs`/`restart`.
+ */
+export function orderDaemonsForListing(snapshots: DaemonSnapshot[]): DaemonSnapshot[] {
+	const active: DaemonSnapshot[] = [];
+	const terminal: DaemonSnapshot[] = [];
+	for (const snapshot of snapshots) {
+		(terminalState(snapshot.state) ? terminal : active).push(snapshot);
+	}
+	active.sort((left, right) => left.createdAt - right.createdAt);
+	terminal.sort((left, right) => (right.exitedAt ?? right.createdAt) - (left.exitedAt ?? left.createdAt));
+	return [...active, ...terminal.slice(0, MAX_TERMINAL_DAEMONS_LISTED)];
 }
 
 /** Mirror per-condition readiness progress into the snapshot so clients can see which condition is unmet. */
@@ -402,9 +427,7 @@ class DaemonBroker {
 				await Promise.all([...this.#records.values()].map(record => this.#refreshDetached(record)));
 				return {
 					op: "list",
-					daemons: [...this.#records.values()]
-						.sort((left, right) => left.snapshot.createdAt - right.snapshot.createdAt)
-						.map(record => record.snapshot),
+					daemons: orderDaemonsForListing([...this.#records.values()].map(record => record.snapshot)),
 				};
 			}
 			case "logs":
