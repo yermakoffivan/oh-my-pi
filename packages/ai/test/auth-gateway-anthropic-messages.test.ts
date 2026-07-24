@@ -503,6 +503,99 @@ describe("anthropic-messages encodeStream", () => {
 		expect(sse[14]!.data).toEqual({ type: "message_stop" });
 	});
 
+	it("emits persisted server-tool blocks before the next streamed content block", async () => {
+		const finalMessage: AssistantMessage = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "search first", thinkingSignature: "SIG" },
+				{
+					type: "anthropicServerTool",
+					block: {
+						type: "server_tool_use",
+						id: "srvtoolu_1",
+						name: "web_search",
+						input: { query: "weather" },
+					},
+				},
+				{
+					type: "anthropicServerTool",
+					block: {
+						type: "web_search_tool_result",
+						tool_use_id: "srvtoolu_1",
+						content: [
+							{
+								type: "web_search_result",
+								url: "https://example.com/weather",
+								title: "Weather",
+								encrypted_content: "encrypted-result",
+							},
+						],
+					},
+				},
+				{ type: "text", text: "forecast ready" },
+			],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "claude-opus-4-7",
+			usage: emptyUsage(),
+			stopReason: "stop",
+			timestamp: 0,
+		};
+		const events: AssistantMessageEvent[] = [
+			{ type: "start", partial: finalMessage },
+			{ type: "thinking_start", contentIndex: 0, partial: finalMessage },
+			{ type: "thinking_delta", contentIndex: 0, delta: "search first", partial: finalMessage },
+			{ type: "thinking_end", contentIndex: 0, content: "search first", partial: finalMessage },
+			{ type: "text_start", contentIndex: 3, partial: finalMessage },
+			{ type: "text_delta", contentIndex: 3, delta: "forecast ready", partial: finalMessage },
+			{ type: "text_end", contentIndex: 3, content: "forecast ready", partial: finalMessage },
+			{ type: "done", reason: "stop", message: finalMessage },
+		];
+
+		const sse = await collectSse(encodeStream(makeStream(events), "claude-opus-4-7"));
+		expect(sse.filter(event => event.event === "content_block_start").map(event => event.data)).toEqual([
+			{
+				type: "content_block_start",
+				index: 0,
+				content_block: { type: "thinking", thinking: "" },
+			},
+			{
+				type: "content_block_start",
+				index: 1,
+				content_block: {
+					type: "server_tool_use",
+					id: "srvtoolu_1",
+					name: "web_search",
+					input: { query: "weather" },
+				},
+			},
+			{
+				type: "content_block_start",
+				index: 2,
+				content_block: {
+					type: "web_search_tool_result",
+					tool_use_id: "srvtoolu_1",
+					content: [
+						{
+							type: "web_search_result",
+							url: "https://example.com/weather",
+							title: "Weather",
+							encrypted_content: "encrypted-result",
+						},
+					],
+				},
+			},
+			{
+				type: "content_block_start",
+				index: 3,
+				content_block: { type: "text", text: "" },
+			},
+		]);
+		expect(sse.filter(event => event.event === "content_block_stop").map(event => event.data.index)).toEqual([
+			0, 1, 2, 3,
+		]);
+	});
+
 	it("emits an error event when the upstream stream errors", async () => {
 		const errMessage: AssistantMessage = {
 			role: "assistant",

@@ -578,6 +578,25 @@ export function encodeStream(
 				);
 			};
 
+			let nextContentIndexToInspect = 0;
+			const emitServerToolBlocksBefore = (message: AssistantMessage, beforeIndex: number) => {
+				const limit = Math.min(beforeIndex, message.content.length);
+				while (nextContentIndexToInspect < limit) {
+					const index = nextContentIndexToInspect++;
+					const content = message.content[index];
+					if (content?.type !== "anthropicServerTool") continue;
+					ensureStart(message);
+					controller.enqueue(
+						sseFrame("content_block_start", {
+							type: "content_block_start",
+							index,
+							content_block: content.block,
+						}),
+					);
+					controller.enqueue(sseFrame("content_block_stop", { type: "content_block_stop", index }));
+				}
+			};
+
 			const closeBlock = (index: number) => {
 				if (!open.has(index)) return;
 				controller.enqueue(sseFrame("content_block_stop", { type: "content_block_stop", index }));
@@ -609,6 +628,7 @@ export function encodeStream(
 							ensureStart(ev.partial);
 							break;
 						case "text_start": {
+							emitServerToolBlocksBefore(ev.partial, ev.contentIndex);
 							ensureStart(ev.partial);
 							open.set(ev.contentIndex, { index: ev.contentIndex, kind: "text" });
 							controller.enqueue(
@@ -633,6 +653,7 @@ export function encodeStream(
 							closeBlock(ev.contentIndex);
 							break;
 						case "thinking_start": {
+							emitServerToolBlocksBefore(ev.partial, ev.contentIndex);
 							ensureStart(ev.partial);
 							open.set(ev.contentIndex, { index: ev.contentIndex, kind: "thinking" });
 							controller.enqueue(
@@ -668,6 +689,7 @@ export function encodeStream(
 							break;
 						}
 						case "toolcall_start": {
+							emitServerToolBlocksBefore(ev.partial, ev.contentIndex);
 							ensureStart(ev.partial);
 							const tc = ev.partial.content[ev.contentIndex] as ToolCall | undefined;
 							open.set(ev.contentIndex, { index: ev.contentIndex, kind: "tool_use" });
@@ -699,6 +721,7 @@ export function encodeStream(
 							break;
 						case "done": {
 							for (const idx of [...open.keys()]) closeBlock(idx);
+							emitServerToolBlocksBefore(ev.message, ev.message.content.length);
 							controller.enqueue(
 								sseFrame("message_delta", {
 									type: "message_delta",
