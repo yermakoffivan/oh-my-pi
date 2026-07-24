@@ -87,7 +87,7 @@ class Modal implements Component {
 describe("fullscreen overlay exit on alt-toggle-size terminals (#6511)", () => {
 	afterEach(() => vi.restoreAllMocks());
 
-	it("does not flash an ED3 rebuild when the terminal echoes a size on alt toggle", async () => {
+	it("auto-detects alt-toggle size echoes while respecting the explicit opt-out", async () => {
 		await withEnv(ENV, async () => {
 			const term = new VirtualTerminal(40, 10, 1000);
 			const scheduler = new Scheduler();
@@ -124,6 +124,17 @@ describe("fullscreen overlay exit on alt-toggle-size terminals (#6511)", () => {
 				await scheduler.flushAll(term);
 				expect(writes.slice(exitWrites).join("")).not.toContain("\x1b[3J");
 				expect(term.getViewport().at(-1)?.trimEnd()).toBe("line-29");
+
+				// The explicit opt-out must win even after runtime auto-detection.
+				// A later width drag therefore borrows the alt buffer and performs
+				// its authoritative ED3 rewrap at settle.
+				Bun.env.PI_TUI_RESIZE_IN_PLACE = "0";
+				const optOutWrites = writes.length;
+				term.resize(50, 10);
+				await scheduler.flushAll(term);
+				const optOut = writes.slice(optOutWrites).join("");
+				expect(optOut).toContain("\x1b[?1049h");
+				expect(optOut).toContain("\x1b[3J");
 			} finally {
 				tui.stop();
 			}

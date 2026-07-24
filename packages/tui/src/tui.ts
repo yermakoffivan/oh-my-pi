@@ -3850,9 +3850,13 @@ export class TUI extends Container {
 	 * ({@link resizeRepaintsInPlace}) with the runtime {@link #altToggleResizesInPlace}
 	 * latch, so a terminal that re-reports its size on alt-screen toggles is
 	 * treated like Warp once observed, breaking the overlay-exit ED3 flash loop.
+	 * An explicit `PI_TUI_RESIZE_IN_PLACE=0|false` suppresses the runtime latch;
+	 * multiplexer handling remains authoritative through the static predicate.
 	 */
 	#resizeRepaintsInPlace(): boolean {
-		return resizeRepaintsInPlace() || this.#altToggleResizesInPlace;
+		const override = Bun.env.PI_TUI_RESIZE_IN_PLACE;
+		const allowAutoDetection = override !== "0" && override !== "false";
+		return resizeRepaintsInPlace() || (allowAutoDetection && this.#altToggleResizesInPlace);
 	}
 
 	/**
