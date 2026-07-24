@@ -1740,6 +1740,36 @@ export class InteractiveMode implements InteractiveModeContext {
 		const context = this.viewSession.buildTranscriptSessionContext({
 			collapseCompactedHistory: settings.get("display.collapseCompacted"),
 		});
+		// A preserved pending-tool component whose result has already landed in
+		// the replayed transcript is re-rendered by `renderSessionContext` itself
+		// (the toolResult message reconstructs the block with its output). Keeping
+		// it in the live set too re-appends a second identical block below the
+		// replayed one — the tool call renders twice (#6516). The preservation
+		// above assumes every pending-tool component is still dangling (its result
+		// lives outside `state.messages`), which stops holding the instant the
+		// result is persisted while the component lingers in `pendingTools` (a
+		// rebuild racing tool-completion, a background/displaceable snapshot).
+		// Drop the already-resolved ones and let the replay own them; only
+		// genuinely in-flight (dangling, replay-stripped) calls still need
+		// preserving.
+		for (const message of context.messages) {
+			if (message.role !== "toolResult") continue;
+			const resolved = livePendingTools.get(message.toolCallId);
+			if (!resolved) continue;
+			// A background task's initial `async.state === "running"` result is
+			// persisted while `EventController#handleToolExecutionEnd` deliberately
+			// keeps its component in `pendingTools` so a later
+			// `tool_execution_update`/`_end` settles it. Such a handle is still
+			// live — dropping it would strand those updates on the running snapshot
+			// — so keep it and let the live component retain ownership; only
+			// terminal results are owned by the replay. (Cast mirrors the async
+			// detail reads in tool-execution.ts / event-controller.ts.)
+			const details = message.details as { async?: { state?: string } } | undefined;
+			if (details?.async?.state === "running") continue;
+			livePendingTools.delete(message.toolCallId);
+			const index = liveComponents.indexOf(resolved as unknown as Component);
+			if (index >= 0) liveComponents.splice(index, 1);
+		}
 		// Prune the settled-component cache to the messages this rebuild will
 		// actually render. Message objects stay strongly reachable through
 		// session entries for the whole session, so entries for compacted-away
