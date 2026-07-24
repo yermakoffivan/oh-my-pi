@@ -33,7 +33,7 @@ import { UserMessageComponent } from "../../modes/components/user-message";
 import { decodeStreamedToolArgs, streamingStringKeysForTool } from "../../modes/controllers/tool-args-reveal";
 import { materializeImageReferenceLinksSync } from "../../modes/image-references";
 import { theme } from "../../modes/theme/theme";
-import type { CompactionQueuedMessage, InteractiveModeContext } from "../../modes/types";
+import type { CompactionQueuedMessage, InteractiveModeContext, RenderSessionContextOptions } from "../../modes/types";
 import {
 	BACKGROUND_TAN_DISPATCH_MESSAGE_TYPE,
 	type CustomMessage,
@@ -70,14 +70,6 @@ type AddMessageOptions = {
 	populateHistory?: boolean;
 	imageLinks?: readonly (string | undefined)[];
 	reuseSettledComponent?: boolean;
-};
-
-type RenderSessionContextOptions = {
-	updateFooter?: boolean;
-	populateHistory?: boolean;
-	reuseSettledComponents?: boolean;
-	/** Tool calls whose existing live component remains the sole render owner across a rebuild. */
-	preservedLiveToolCallIds?: ReadonlySet<string>;
 };
 
 function imageLinksForMessage(
